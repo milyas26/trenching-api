@@ -10,7 +10,10 @@ import { logsRoutes } from './modules/logs/logs.routes.ts';
 
 export async function buildApp({ controllers }: Container) {
   const app = Fastify({ logger: { level: 'warn' } });
-  await app.register(cors, { origin: env.corsOrigin });
+  await app.register(cors, {
+    origin: env.corsOrigin,
+    methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE'],
+  });
   app.setErrorHandler(errorHandler);
 
   await app.register(async (api) => {
