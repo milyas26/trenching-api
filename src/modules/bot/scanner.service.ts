@@ -28,7 +28,8 @@ export class ScannerService {
       this.state.lastScanTokens = tokens;
       if (!buy) return;
 
-      const known = await this.positions.mintsByMode(settings.mode);
+      // Token yang pernah dibeli di mode mana pun tidak dibeli lagi.
+      const known = await this.positions.boughtMints();
       const fresh = tokens.filter((t) => !known.has(t.mint));
       const active = await this.positions.countActive(settings.mode);
       const slots = Math.max(0, Math.min(settings.maxOpenPositions - active, settings.maxBuysPerScan));

@@ -22,4 +22,5 @@ export const env = {
   gmgnScript: process.env.GMGN_SCRIPT ?? path.join(API_DIR, 'scripts', 'gmgn_hot_searches.py'),
   pumpportalApiKey: process.env.PUMPPORTAL_API_KEY ?? '',
   walletPublicKey: process.env.WALLET_PUBLIC_KEY ?? '',
+  solanaRpcUrl: process.env.SOLANA_RPC_URL ?? 'https://api.mainnet-beta.solana.com',
 } as const;

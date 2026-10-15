@@ -2,6 +2,7 @@ import { prisma } from './lib/prisma.ts';
 import { GmgnClient } from './integrations/gmgn/gmgn.client.ts';
 import { DexscreenerClient } from './integrations/dexscreener/dexscreener.client.ts';
 import { PumpportalClient } from './integrations/pumpportal/pumpportal.client.ts';
+import { SolanaClient } from './integrations/solana/solana.client.ts';
 import { SettingsRepository } from './modules/settings/settings.repository.ts';
 import { SettingsService } from './modules/settings/settings.service.ts';
 import { SettingsController } from './modules/settings/settings.controller.ts';
@@ -25,6 +26,7 @@ export function createContainer() {
   const gmgn = new GmgnClient();
   const dexscreener = new DexscreenerClient();
   const pumpportal = new PumpportalClient();
+  const solana = new SolanaClient();
 
   const settingsRepo = new SettingsRepository(prisma);
   const logsRepo = new LogsRepository(prisma);
@@ -42,7 +44,7 @@ export function createContainer() {
   const scanner = new ScannerService(state, gmgn, positionsRepo, settings, trading, logs);
   const monitor = new MonitorService(state, dexscreener, positionsRepo, settings, trading, logs);
   const scheduler = new BotScheduler(state, settings, scanner, monitor);
-  const bot = new BotService(state, settings, positions, positionsRepo, scheduler, scanner, pumpportal, logs);
+  const bot = new BotService(state, settings, positions, positionsRepo, scheduler, scanner, pumpportal, solana, logs);
 
   return {
     prisma,

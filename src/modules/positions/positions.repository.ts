@@ -20,8 +20,9 @@ export class PositionsRepository implements IPositionsRepository {
     });
   }
 
-  async mintsByMode(mode: TradeMode) {
-    const rows = await this.db.position.findMany({ where: { mode }, select: { mint: true } });
+  /** Semua mint yang pernah dicoba buy, paper maupun real, termasuk yang gagal. */
+  async boughtMints() {
+    const rows = await this.db.position.findMany({ distinct: ['mint'], select: { mint: true } });
     return new Set(rows.map((r) => r.mint));
   }
 

@@ -61,7 +61,7 @@ export interface PositionStats {
 
 export interface IPositionsRepository {
   list(query: ListPositionsQuery, limit: number): Promise<Position[]>;
-  mintsByMode(mode: TradeMode): Promise<Set<string>>;
+  boughtMints(): Promise<Set<string>>;
   countActive(mode: TradeMode): Promise<number>;
   findOpen(): Promise<Position[]>;
   /** Insert status 'opening'; null kalau mint sudah pernah ada di mode itu. */
