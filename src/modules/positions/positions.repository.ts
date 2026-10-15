@@ -101,20 +101,26 @@ export class PositionsRepository implements IPositionsRepository {
     });
   }
 
-  async modeStats(mode: TradeMode): Promise<ModeStats> {
+  async allModeStats(): Promise<Record<TradeMode, ModeStats>> {
     const [byStatus, wins, open] = await Promise.all([
       this.db.position.groupBy({
-        by: ['status'],
-        where: { mode },
+        by: ['mode', 'status'],
         _count: { _all: true },
         _sum: { amountSol: true, pnlSol: true },
       }),
-      this.db.position.count({ where: { mode, status: 'closed', pnlSol: { gt: 0 } } }),
-      this.db.position.findMany({ where: { mode, status: 'open' }, select: { amountSol: true, pnlPct: true } }),
+      this.db.position.groupBy({
+        by: ['mode'],
+        where: { status: 'closed', pnlSol: { gt: 0 } },
+        _count: { _all: true },
+      }),
+      this.db.position.findMany({ where: { status: 'open' }, select: { mode: true, amountSol: true, pnlPct: true } }),
     ]);
 
-    const stats: ModeStats = { open: 0, closed: 0, wins, failed: 0, realizedSol: 0, unrealizedSol: 0, lockedSol: 0 };
+    const empty = (): ModeStats => ({ open: 0, closed: 0, wins: 0, failed: 0, realizedSol: 0, unrealizedSol: 0, lockedSol: 0 });
+    const result: Record<TradeMode, ModeStats> = { paper: empty(), real: empty() };
+
     for (const g of byStatus) {
+      const stats = result[g.mode];
       if (ACTIVE_STATUSES.includes(g.status)) {
         stats.open += g._count._all;
         stats.lockedSol += g._sum.amountSol ?? 0;
@@ -125,7 +131,8 @@ export class PositionsRepository implements IPositionsRepository {
         stats.failed = g._count._all;
       }
     }
-    stats.unrealizedSol = open.reduce((sum, p) => sum + p.amountSol * ((p.pnlPct ?? 0) / 100), 0);
-    return stats;
+    for (const w of wins) result[w.mode].wins = w._count._all;
+    for (const p of open) result[p.mode].unrealizedSol += p.amountSol * ((p.pnlPct ?? 0) / 100);
+    return result;
   }
 }

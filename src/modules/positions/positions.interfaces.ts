@@ -74,5 +74,6 @@ export interface IPositionsRepository {
   markClosed(id: number, data: ClosedPositionData): Promise<void>;
   revertToOpen(id: number, error: string): Promise<void>;
   recoverStuck(): Promise<{ id: number; mint: string; status: PositionStatus }[]>;
-  modeStats(mode: TradeMode): Promise<ModeStats>;
+  /** Statistik semua mode sekaligus (3 query total, bukan 3 per mode). */
+  allModeStats(): Promise<Record<TradeMode, ModeStats>>;
 }

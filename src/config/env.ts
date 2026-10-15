@@ -17,6 +17,7 @@ export const env = {
   port: Number(process.env.PORT ?? 3001),
   corsOrigin: parseOrigins(process.env.CORS_ORIGIN),
   databaseUrl: process.env.DATABASE_URL ?? `postgresql://${process.env.USER}@localhost:5432/micin-agent`,
+  dbPoolMax: Number(process.env.DB_POOL_MAX ?? 5),
   pythonBin: process.env.PYTHON_BIN ?? 'python3',
   gmgnScript: process.env.GMGN_SCRIPT ?? path.join(API_DIR, 'scripts', 'gmgn_hot_searches.py'),
   pumpportalApiKey: process.env.PUMPPORTAL_API_KEY ?? '',

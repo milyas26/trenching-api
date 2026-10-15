@@ -10,7 +10,7 @@ export class PositionsService {
   }
 
   async stats(settings: BotSettings): Promise<PositionStats> {
-    const [paper, real] = await Promise.all([this.repo.modeStats('paper'), this.repo.modeStats('real')]);
+    const { paper, real } = await this.repo.allModeStats();
     return {
       paper: { ...paper, balanceSol: settings.paperStartBalanceSol + paper.realizedSol - paper.lockedSol },
       real,

@@ -3,7 +3,12 @@ import { PrismaClient } from '../generated/prisma/client.ts';
 import { env } from '../config/env.ts';
 
 export const prisma = new PrismaClient({
-  adapter: new PrismaPg({ connectionString: env.databaseUrl }),
+  adapter: new PrismaPg({
+    connectionString: env.databaseUrl,
+    max: env.dbPoolMax,
+    idleTimeoutMillis: 30_000,
+    connectionTimeoutMillis: 10_000,
+  }),
 });
 
 export type { PrismaClient };
