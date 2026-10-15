@@ -14,6 +14,7 @@ console.log(`micin-agent API jalan di http://localhost:${env.port}`);
 
 async function shutdown() {
   container.scheduler.stop();
+  container.priceStream.close();
   await app.close();
   await container.prisma.$disconnect();
   process.exit(0);

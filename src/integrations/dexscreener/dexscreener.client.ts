@@ -1,9 +1,9 @@
-import type { DexPair, TokenQuote } from './dexscreener.types.ts';
+import type { DexPair, PriceSource, TokenQuote } from './dexscreener.types.ts';
 
 const BASE_URL = 'https://api.dexscreener.com/tokens/v1/solana/';
 const MAX_PER_REQUEST = 30;
 
-export class DexscreenerClient {
+export class DexscreenerClient implements PriceSource {
   /** Harga USD per mint. Mint tanpa pair tidak muncul di Map hasil. */
   async getQuotes(mints: string[]): Promise<Map<string, TokenQuote>> {
     const result = new Map<string, TokenQuote>();
@@ -25,7 +25,7 @@ export class DexscreenerClient {
         if (!prev || liquidity > prev.liquidity) {
           best.set(mint, {
             liquidity,
-            quote: { priceUsd: Number(pair.priceUsd), marketCap: pair.marketCap ?? pair.fdv ?? null },
+            quote: { priceUsd: Number(pair.priceUsd), marketCap: pair.marketCap ?? pair.fdv ?? null, source: 'dexscreener' },
           });
         }
       }

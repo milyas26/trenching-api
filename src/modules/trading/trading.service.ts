@@ -1,4 +1,4 @@
-import type { DexscreenerClient } from '../../integrations/dexscreener/dexscreener.client.ts';
+import type { PriceSource } from '../../integrations/dexscreener/dexscreener.types.ts';
 import type { IPositionsRepository, ExitReason, TradeMode } from '../positions/positions.interfaces.ts';
 import type { PositionsService } from '../positions/positions.service.ts';
 import type { LogsService } from '../logs/logs.service.ts';
@@ -17,7 +17,7 @@ export class TradingService {
   constructor(
     private readonly repo: IPositionsRepository,
     private readonly positions: PositionsService,
-    private readonly prices: DexscreenerClient,
+    private readonly prices: PriceSource,
     private readonly settings: SettingsService,
     private readonly logs: LogsService,
     executors: TradeExecutor[],

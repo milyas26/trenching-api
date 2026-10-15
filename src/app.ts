@@ -7,6 +7,7 @@ import { botRoutes } from './modules/bot/bot.routes.ts';
 import { settingsRoutes } from './modules/settings/settings.routes.ts';
 import { positionsRoutes } from './modules/positions/positions.routes.ts';
 import { logsRoutes } from './modules/logs/logs.routes.ts';
+import { pricesRoutes } from './modules/prices/prices.routes.ts';
 
 export async function buildApp({ controllers }: Container) {
   const app = Fastify({ logger: { level: 'warn' } });
@@ -21,6 +22,7 @@ export async function buildApp({ controllers }: Container) {
     await api.register(settingsRoutes(controllers.settings));
     await api.register(positionsRoutes(controllers.positions));
     await api.register(logsRoutes(controllers.logs));
+    await api.register(pricesRoutes(controllers.prices));
   }, { prefix: '/api' });
 
   return app;
