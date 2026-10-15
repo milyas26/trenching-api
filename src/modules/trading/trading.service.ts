@@ -1,0 +1,91 @@
+import type { DexscreenerClient } from '../../integrations/dexscreener/dexscreener.client.ts';
+import type { IPositionsRepository, ExitReason, TradeMode } from '../positions/positions.interfaces.ts';
+import type { PositionsService } from '../positions/positions.service.ts';
+import type { LogsService } from '../logs/logs.service.ts';
+import type { SettingsService } from '../settings/settings.service.ts';
+import type { BotSettings } from '../settings/settings.interfaces.ts';
+import { conflict } from '../../common/errors.ts';
+import { pnlPct } from './exit-rules.ts';
+import type { BuyCandidate, TradeExecutor } from './trading.interfaces.ts';
+
+const shortMint = (mint: string) => `${mint.slice(0, 4)}…${mint.slice(-4)}`;
+
+/** Buka/tutup posisi. Satu-satunya tempat yang memanggil executor (paper/real). */
+export class TradingService {
+  private readonly executors: Record<TradeMode, TradeExecutor>;
+
+  constructor(
+    private readonly repo: IPositionsRepository,
+    private readonly positions: PositionsService,
+    private readonly prices: DexscreenerClient,
+    private readonly settings: SettingsService,
+    private readonly logs: LogsService,
+    executors: TradeExecutor[],
+  ) {
+    this.executors = Object.fromEntries(executors.map((e) => [e.mode, e])) as Record<TradeMode, TradeExecutor>;
+  }
+
+  async open(token: BuyCandidate, settings: BotSettings): Promise<void> {
+    const { mode, buyAmountSol: amountSol } = settings;
+    const label = `${token.symbol ?? shortMint(token.mint)} [${mode}]`;
+
+    if (mode === 'paper' && (await this.positions.paperBalance(settings)) < amountSol) {
+      await this.logs.warn(`Saldo paper tidak cukup untuk buy ${label}`);
+      return;
+    }
+
+    // Klaim mint dulu (unique mode+mint) supaya token yang sama tidak pernah dibeli dua kali.
+    const id = await this.repo.claim({
+      mode, mint: token.mint, symbol: token.symbol, name: token.name, logo: token.logo,
+      amountSol, entryMc: token.mc,
+    });
+    if (id === null) return;
+
+    try {
+      const signature = await this.executors[mode].buy(token.mint, amountSol, settings);
+      const quote = (await this.prices.getQuotes([token.mint]).catch(() => null))?.get(token.mint);
+      const entry = quote?.priceUsd ?? token.price;
+      if (!entry) throw new Error('harga entry tidak tersedia');
+
+      // Supply tetap, jadi market cap = harga x supply untuk semua harga berikutnya.
+      const supply = quote?.marketCap && quote.priceUsd
+        ? quote.marketCap / quote.priceUsd
+        : token.mc && token.price ? token.mc / token.price : null;
+
+      await this.repo.markOpen(id, { entryPrice: entry, supply, buySignature: signature });
+      await this.logs.buy(`BUY ${label} ${amountSol} SOL @ $${entry}${signature ? ` sig ${signature}` : ''}`);
+    } catch (e) {
+      const message = (e as Error).message;
+      await this.repo.markFailed(id, message);
+      await this.logs.error(`BUY ${label} gagal: ${message}`);
+    }
+  }
+
+  async close(id: number, reason: ExitReason, priceHint?: number): Promise<void> {
+    const pos = await this.repo.claimForClose(id);
+    if (!pos) throw conflict('Posisi tidak sedang open');
+    const label = `${pos.symbol ?? shortMint(pos.mint)} [${pos.mode}]`;
+
+    try {
+      const settings = await this.settings.get();
+      const price = priceHint ?? (await this.prices.getPrice(pos.mint)) ?? pos.currentPrice;
+      if (!price || !pos.entryPrice) throw new Error('harga exit tidak tersedia');
+
+      const sellSignature = await this.executors[pos.mode].sellAll(pos.mint, settings);
+      const pct = pnlPct(pos.entryPrice, price);
+      const pnlSol = pos.amountSol * (pct / 100);
+
+      await this.repo.markClosed(id, { exitPrice: price, exitReason: reason, pnlPct: pct, pnlSol, sellSignature });
+      await this.logs.sell(
+        `SELL ${label} (${reason}) @ $${price} | PnL ${pct.toFixed(2)}% (${pnlSol.toFixed(4)} SOL)`
+          + (sellSignature ? ` sig ${sellSignature}` : ''),
+      );
+    } catch (e) {
+      // Balik ke open supaya dicoba lagi di cek harga berikutnya.
+      const message = (e as Error).message;
+      await this.repo.revertToOpen(id, message);
+      await this.logs.error(`SELL ${label} gagal: ${message}`);
+      throw e;
+    }
+  }
+}

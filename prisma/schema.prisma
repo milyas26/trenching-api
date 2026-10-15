@@ -1,0 +1,87 @@
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "esm"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum TradeMode {
+  paper
+  real
+}
+
+enum PositionStatus {
+  opening
+  open
+  closing
+  closed
+  failed
+}
+
+enum ExitReason {
+  take_profit
+  stop_loss
+  trailing_stop
+  max_hold
+  manual
+}
+
+enum LogLevel {
+  info
+  warn
+  error
+  buy
+  sell
+}
+
+model Setting {
+  id        Int      @id @default(1)
+  data      Json
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("settings")
+}
+
+model Position {
+  id            Int            @id @default(autoincrement())
+  mode          TradeMode
+  mint          String
+  symbol        String?
+  name          String?
+  logo          String?
+  status        PositionStatus
+  amountSol     Float          @map("amount_sol")
+  entryPrice    Float?         @map("entry_price")
+  entryMc       Float?         @map("entry_mc")
+  /// Supply token (market cap / harga) saat entry; dipakai untuk menurunkan market cap dari harga.
+  supply        Float?
+  currentPrice  Float?         @map("current_price")
+  highPrice     Float?         @map("high_price")
+  pnlPct        Float?         @map("pnl_pct")
+  exitPrice     Float?         @map("exit_price")
+  exitReason    ExitReason?    @map("exit_reason")
+  pnlSol        Float?         @map("pnl_sol")
+  buySignature  String?        @map("buy_signature")
+  sellSignature String?        @map("sell_signature")
+  sellAttempts  Int            @default(0) @map("sell_attempts")
+  error         String?
+  openedAt      DateTime       @default(now()) @map("opened_at")
+  closedAt      DateTime?      @map("closed_at")
+  priceUpdatedAt DateTime?     @map("price_updated_at")
+
+  @@unique([mode, mint])
+  @@index([status])
+  @@map("positions")
+}
+
+model Log {
+  id        BigInt   @id @default(autoincrement())
+  level     LogLevel
+  message   String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("logs")
+}
