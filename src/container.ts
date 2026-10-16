@@ -6,6 +6,7 @@ import { SolanaClient } from './integrations/solana/solana.client.ts';
 import { SolanaWsClient } from './integrations/solana/solana-ws.client.ts';
 import { OnchainPriceClient } from './integrations/onchain/onchain-price.client.ts';
 import { OnchainPriceStream } from './integrations/onchain/onchain-price.stream.ts';
+import { GeckoterminalClient } from './integrations/geckoterminal/geckoterminal.client.ts';
 import { DeepseekClient } from './integrations/deepseek/deepseek.client.ts';
 import { AgentService } from './modules/agent/agent.service.ts';
 import { AgentController } from './modules/agent/agent.controller.ts';
@@ -50,7 +51,7 @@ export function createContainer() {
     new RealExecutor(pumpportal, solana),
   ]);
 
-  const agent = new AgentService(new DeepseekClient(), dexscreener, prices);
+  const agent = new AgentService(new DeepseekClient(), dexscreener, new GeckoterminalClient(), prices);
 
   const state = createBotState();
   const scanner = new ScannerService(state, gmgn, positionsRepo, settings, trading, logs, agent);

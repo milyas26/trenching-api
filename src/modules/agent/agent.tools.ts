@@ -1,9 +1,12 @@
 import { setTimeout as sleep } from 'node:timers/promises';
 import type { ToolDefinition } from '../../integrations/deepseek/deepseek.types.ts';
 import type { DexscreenerClient } from '../../integrations/dexscreener/dexscreener.client.ts';
+import type { DexPair } from '../../integrations/dexscreener/dexscreener.types.ts';
+import type { GeckoterminalClient } from '../../integrations/geckoterminal/geckoterminal.client.ts';
 import type { PriceSource } from '../../integrations/dexscreener/dexscreener.types.ts';
 import type { TokenSafety } from '../../integrations/gmgn/gmgn.types.ts';
 import type { PriceSample } from './agent.interfaces.ts';
+import { analyzeChart, CHART_WINDOW, type ChartStats } from './agent.chart.ts';
 
 export const MIN_WAIT_SEC = 5;
 export const MAX_WAIT_SEC = 30;
@@ -22,6 +25,14 @@ export const AGENT_TOOLS: ToolDefinition[] = [
     function: {
       name: 'get_holder_distribution',
       description: 'Distribusi holder dan keamanan token dari GMGN: persentase supply di 10 holder teratas, jumlah holder, status mint/freeze authority, status dev, rug ratio, sniper, smart money, KOL, wash trading.',
+      parameters: { type: 'object', properties: {} },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_chart_stats',
+      description: `Statistik candle 1 menit (${CHART_WINDOW} menit terakhir) dan ukuran rata-rata trade: streak candle hijau, jumlah candle merah, rata-rata volume, body 10 candle terakhir, dan botFlags kalau chart terlihat dibuat bot.`,
       parameters: { type: 'object', properties: {} },
     },
   },
@@ -57,33 +68,66 @@ export const AGENT_TOOLS: ToolDefinition[] = [
   },
 ];
 
+export type InspectorData = 'market' | 'holders' | 'chart';
+
 const round = (n: number | null | undefined, digits = 2) => (n == null ? null : Number(n.toFixed(digits)));
 
 /** Data yang bisa diminta model. Satu instance per review token, menyimpan sampel harga selama review. */
 export class TokenInspector {
   readonly samples: PriceSample[] = [];
-  private readonly once = new Map<string, unknown>();
+  private readonly loaded = new Map<InspectorData, Promise<unknown>>();
+  private readonly served = new Set<InspectorData>();
+  private pairs: Promise<DexPair[]> | null = null;
 
   constructor(
     private readonly mint: string,
     private readonly safety: TokenSafety,
     private readonly dexscreener: DexscreenerClient,
+    private readonly gecko: GeckoterminalClient,
     private readonly prices: PriceSource,
   ) {}
 
-  /** Data market/holder tidak berubah berarti dalam satu review; panggilan ulang dapat hasil yang sama. */
-  async cached(name: 'market' | 'holders'): Promise<unknown> {
-    if (this.once.has(name)) {
-      return { note: 'data ini sudah diberikan sebelumnya dan tidak akan berubah, jangan panggil lagi', result: this.once.get(name) };
+  /** Diambil sekali per review; gate chart sistem dan tool model memakai hasil yang sama. */
+  load(name: InspectorData): Promise<unknown> {
+    let result = this.loaded.get(name);
+    if (!result) {
+      const fetchers = { market: () => this.marketData(), holders: () => this.holderDistribution(), chart: () => this.chartStats() };
+      result = fetchers[name]().catch((e: Error) => ({ error: e.message, note: 'data tidak tersedia, nilai risiko dari data lain' }));
+      this.loaded.set(name, result);
     }
-    const result = await (name === 'market' ? this.marketData() : this.holderDistribution())
-      .catch((e: Error) => ({ error: e.message, note: 'data tidak tersedia, nilai risiko dari data lain' }));
-    this.once.set(name, result);
     return result;
   }
 
+  /** Data market/holder/chart tidak berubah berarti dalam satu review; panggilan ulang model dapat hasil yang sama. */
+  async cached(name: InspectorData): Promise<unknown> {
+    const result = await this.load(name);
+    if (this.served.has(name)) {
+      return { note: 'data ini sudah diberikan sebelumnya dan tidak akan berubah, jangan panggil lagi', result };
+    }
+    this.served.add(name);
+    return result;
+  }
+
+  private getPairs() {
+    this.pairs ??= this.dexscreener.getPairs(this.mint);
+    return this.pairs;
+  }
+
+  /** Candle gagal diambil tidak menggagalkan stats; ukuran trade cukup dari DexScreener. */
+  private async chartStats(): Promise<ChartStats> {
+    const [pair] = await this.getPairs();
+    if (!pair) throw new Error('token belum punya pair di DexScreener');
+    let candleError: string | undefined;
+    const candles = pair.pairAddress
+      ? await this.gecko.getMinuteCandles(pair.pairAddress, CHART_WINDOW + 1).catch((e: Error) => { candleError = e.message; return null; })
+      : null;
+    const stats = analyzeChart(candles, pair, Date.now() / 1000);
+    if (candleError) stats.candleError = candleError;
+    return stats;
+  }
+
   private async marketData() {
-    const [pair, ...others] = await this.dexscreener.getPairs(this.mint);
+    const [pair, ...others] = await this.getPairs();
     if (!pair) return { error: 'token belum punya pair di DexScreener' };
     return {
       dex: pair.dexId,

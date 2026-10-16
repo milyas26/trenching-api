@@ -16,7 +16,7 @@ export interface PriceSample {
   marketCap: number | null;
 }
 
-export type AgentStepKind = 'market' | 'holders' | 'recheck' | 'decision' | 'note';
+export type AgentStepKind = 'market' | 'holders' | 'chart' | 'recheck' | 'decision' | 'note';
 
 /** Satu kejadian di loop review, ditampilkan di app sebagai baris timeline. */
 export interface AgentStep {

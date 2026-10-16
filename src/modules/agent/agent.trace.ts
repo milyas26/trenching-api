@@ -45,6 +45,16 @@ function summarize(kind: AgentStepKind, raw: unknown): { detail: string; failed:
       ].filter(Boolean).join(' · '),
     };
   }
+  if (kind === 'chart') {
+    if (data.botFlags?.length) return { failed: true, detail: data.botFlags.join(' · ') };
+    return {
+      failed: false,
+      detail: [
+        data.candles != null ? `${data.greenStreak} hijau beruntun · ${data.redCandles} merah dari ${data.candles} candle` : `candle tidak tersedia`,
+        typeof data.avgTradeUsd === 'number' ? `rata-rata trade $${data.avgTradeUsd}` : null,
+      ].filter(Boolean).join(' · '),
+    };
+  }
   if (kind === 'recheck') {
     return {
       failed: false,
@@ -57,6 +67,7 @@ function summarize(kind: AgentStepKind, raw: unknown): { detail: string; failed:
 const TITLES: Record<string, { kind: AgentStepKind; title: string; activity: string }> = {
   get_market_data: { kind: 'market', title: 'Data pasar', activity: 'Mengambil data pasar DexScreener' },
   get_holder_distribution: { kind: 'holders', title: 'Distribusi holder', activity: 'Membaca holder on-chain' },
+  get_chart_stats: { kind: 'chart', title: 'Pola chart', activity: 'Membaca candle 1 menit GeckoTerminal' },
   recheck_price: { kind: 'recheck', title: 'Cek ulang harga', activity: 'Menunggu lalu cek harga on-chain' },
 };
 

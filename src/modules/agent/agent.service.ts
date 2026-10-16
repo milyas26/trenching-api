@@ -2,10 +2,12 @@ import type { DeepseekClient } from '../../integrations/deepseek/deepseek.client
 import type { ChatMessage, ToolCall } from '../../integrations/deepseek/deepseek.types.ts';
 import type { DexscreenerClient } from '../../integrations/dexscreener/dexscreener.client.ts';
 import type { PriceSource } from '../../integrations/dexscreener/dexscreener.types.ts';
+import type { GeckoterminalClient } from '../../integrations/geckoterminal/geckoterminal.client.ts';
 import type { HotToken } from '../../integrations/gmgn/gmgn.types.ts';
 import type { BotSettings } from '../settings/settings.interfaces.ts';
 import type { AgentDecision, AgentReview, AgentVerdict } from './agent.interfaces.ts';
 import { AGENT_TOOLS, TokenInspector } from './agent.tools.ts';
+import type { ChartStats } from './agent.chart.ts';
 import { ReviewTrace } from './agent.trace.ts';
 
 /** Batas giliran model per token; habis tanpa keputusan = skip. */
@@ -20,7 +22,7 @@ const KEEP_REVIEWS = 10;
 const SYSTEM_PROMPT = `Kamu analis token memecoin Solana untuk bot auto-trade. Tugasmu memutuskan apakah token layak dibeli SEKARANG.
 
 Cara kerja:
-1. Panggil get_market_data dan get_holder_distribution.
+1. Panggil get_market_data, get_holder_distribution, dan get_chart_stats.
 2. Panggil recheck_price beberapa kali (minimal ${MIN_PRICE_SAMPLES - 1}x) untuk melihat arah harga dari waktu ke waktu.
 3. Panggil submit_decision.
 
@@ -30,6 +32,7 @@ Pertimbangkan:
 - Data holder dari GMGN: rugRatio tinggi, sniper banyak, atau wash trading adalah tanda bahaya; dev yang sudah keluar (creator_close) berarti tidak ada lagi risiko dev dump.
 - Rasio buy/sell dan volume 5 menit terakhir: tekanan jual dominan berarti skip.
 - Likuiditas sangat tipis dibanding market cap berarti slippage besar dan mudah rug.
+- Chart yang naik terlalu mulus (candle hijau beruntun dengan body kecil yang rata, hampir tanpa candle merah) atau rata-rata trade hanya beberapa dolar adalah volume buatan bot yang biasanya diakhiri rug. Chart organik punya koreksi dan ukuran trade yang bervariasi.
 - Harga yang sudah naik sangat tinggi dalam waktu singkat lalu mulai turun di sampel recheck berarti momentum habis.
 - Bot memakai take profit dan stop loss yang tertera; beli hanya kalau peluang mencapai take profit lebih besar dari kena stop loss.
 
@@ -46,6 +49,7 @@ export class AgentService {
   constructor(
     private readonly deepseek: DeepseekClient,
     private readonly dexscreener: DexscreenerClient,
+    private readonly gecko: GeckoterminalClient,
     private readonly prices: PriceSource,
   ) {}
 
@@ -82,7 +86,17 @@ export class AgentService {
   }
 
   private async loop(token: HotToken, settings: BotSettings, trace: ReviewTrace): Promise<AgentDecision> {
-    const inspector = new TokenInspector(token.mint, token.safety, this.dexscreener, this.prices);
+    const inspector = new TokenInspector(token.mint, token.safety, this.dexscreener, this.gecko, this.prices);
+
+    // Gate sistem sebelum DeepSeek: chart bot sudah jelas dari angka, tidak perlu bayar review.
+    trace.toolStarted('get_chart_stats');
+    const chart = (await inspector.load('chart')) as Partial<ChartStats>;
+    trace.toolFinished('get_chart_stats', chart);
+    if (chart.botFlags?.length) {
+      const decision = { decision: 'skip' as const, confidence: 100, reason: `Chart buatan bot: ${chart.botFlags.join('; ')}.`, steps: 0 };
+      return this.finish(token.mint, decision);
+    }
+
     await inspector.samplePrice().catch(() => null);
 
     const messages: ChatMessage[] = [
@@ -139,6 +153,8 @@ async function runTool(inspector: TokenInspector, call: ToolCall): Promise<unkno
         return await inspector.cached('market');
       case 'get_holder_distribution':
         return await inspector.cached('holders');
+      case 'get_chart_stats':
+        return await inspector.cached('chart');
       case 'recheck_price': {
         const args = safeJson(call.function.arguments) as { wait_seconds?: number } | null;
         return await inspector.recheckPrice(Number(args?.wait_seconds));
