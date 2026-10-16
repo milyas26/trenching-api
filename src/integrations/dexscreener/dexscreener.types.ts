@@ -1,9 +1,20 @@
+type Windows<T> = Partial<Record<'m5' | 'h1' | 'h6' | 'h24', T>>;
+
 export interface DexPair {
+  dexId?: string;
+  pairAddress?: string;
   baseToken?: { address: string };
   priceUsd?: string;
   liquidity?: { usd?: number };
   marketCap?: number;
   fdv?: number;
+  txns?: Windows<{ buys: number; sells: number }>;
+  volume?: Windows<number>;
+  priceChange?: Windows<number>;
+  /** unix ms */
+  pairCreatedAt?: number;
+  info?: { websites?: { url: string }[]; socials?: { type: string; url: string }[] };
+  boosts?: { active?: number };
 }
 
 export interface TokenQuote {

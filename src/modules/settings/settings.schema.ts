@@ -35,6 +35,9 @@ export const botSettingsSchema = z.object({
   priorityFeeSol: z.coerce.number().min(0).default(0.0005),
   pool: z.enum(PUMP_POOLS as [string, ...string[]]).default('auto'),
 
+  /** Token dicek AI agent (DeepSeek) sebelum buy; false = langsung buy semua yang lolos filter. */
+  aiAgentEnabled: z.boolean().default(true),
+
   paperStartBalanceSol: z.coerce.number().min(0).default(10),
 
   filter: hotSearchFilterSchema.default(hotSearchFilterSchema.parse({})),

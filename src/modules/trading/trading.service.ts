@@ -6,7 +6,7 @@ import type { SettingsService } from '../settings/settings.service.ts';
 import type { BotSettings } from '../settings/settings.interfaces.ts';
 import { conflict } from '../../common/errors.ts';
 import { pnlPct } from './exit-rules.ts';
-import type { BuyCandidate, TradeExecutor } from './trading.interfaces.ts';
+import { NoTokensError, type BuyCandidate, type TradeExecutor } from './trading.interfaces.ts';
 
 const shortMint = (mint: string) => `${mint.slice(0, 4)}…${mint.slice(-4)}`;
 
@@ -25,13 +25,23 @@ export class TradingService {
     this.executors = Object.fromEntries(executors.map((e) => [e.mode, e])) as Record<TradeMode, TradeExecutor>;
   }
 
-  async open(token: BuyCandidate, settings: BotSettings): Promise<void> {
+  /** @returns false kalau saldo tidak cukup, supaya pemanggil berhenti mencoba token lain. */
+  async open(token: BuyCandidate, settings: BotSettings): Promise<boolean> {
     const { mode, buyAmountSol: amountSol } = settings;
     const label = `${token.symbol ?? shortMint(token.mint)} [${mode}]`;
 
     if (mode === 'paper' && (await this.positions.paperBalance(settings)) < amountSol) {
       await this.logs.warn(`Saldo paper tidak cukup untuk buy ${label}`);
-      return;
+      return false;
+    }
+    // Cek sebelum claim: kalau tidak, token ini tercatat failed dan tidak akan pernah dibeli lagi.
+    const maxBuy = await this.executors[mode].maxBuySol(settings).catch(async (e: Error) => {
+      await this.logs.error(`Cek saldo wallet gagal, buy ${label} dilewati: ${e.message}`);
+      return 0;
+    });
+    if (maxBuy !== null && maxBuy < amountSol) {
+      await this.logs.warn(`Saldo wallet tidak cukup untuk buy ${label}: maks ${maxBuy.toFixed(4)} SOL setelah fee`);
+      return false;
     }
 
     // Klaim mint dulu (unique mode+mint) supaya token yang sama tidak pernah dibeli dua kali.
@@ -39,7 +49,7 @@ export class TradingService {
       mode, mint: token.mint, symbol: token.symbol, name: token.name, logo: token.logo,
       amountSol, entryMc: token.mc,
     });
-    if (id === null) return;
+    if (id === null) return true;
 
     try {
       const signature = await this.executors[mode].buy(token.mint, amountSol, settings);
@@ -59,6 +69,7 @@ export class TradingService {
       await this.repo.markFailed(id, message);
       await this.logs.error(`BUY ${label} gagal: ${message}`);
     }
+    return true;
   }
 
   async close(id: number, reason: ExitReason, priceHint?: number): Promise<void> {
@@ -81,6 +92,11 @@ export class TradingService {
           + (sellSignature ? ` sig ${sellSignature}` : ''),
       );
     } catch (e) {
+      if (e instanceof NoTokensError) {
+        await this.repo.markFailed(id, e.message);
+        await this.logs.warn(`SELL ${label} dibatalkan: ${e.message}, posisi ditandai failed`);
+        return;
+      }
       // Balik ke open supaya dicoba lagi di cek harga berikutnya.
       const message = (e as Error).message;
       await this.repo.revertToOpen(id, message);

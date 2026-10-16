@@ -27,4 +27,6 @@ export const env = {
   solanaRpcUrl,
   /** Default: URL RPC dengan skema http(s) diganti ws(s), sama seperti konvensi provider RPC umumnya. */
   solanaWsUrl: process.env.SOLANA_WS_URL ?? solanaRpcUrl.replace(/^http/, 'ws'),
+  deepseekApiKey: process.env.DEEPSEEK_API_KEY ?? '',
+  deepseekModel: process.env.DEEPSEEK_MODEL ?? 'deepseek-chat',
 } as const;

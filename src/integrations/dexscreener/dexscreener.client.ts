@@ -34,6 +34,16 @@ export class DexscreenerClient implements PriceSource {
     return result;
   }
 
+  /** Semua pair satu token, urut likuiditas terbesar dulu. */
+  async getPairs(mint: string): Promise<DexPair[]> {
+    const res = await fetch(BASE_URL + mint, { signal: AbortSignal.timeout(15_000) });
+    if (!res.ok) throw new Error(`DexScreener HTTP ${res.status}`);
+    const pairs = (await res.json()) as DexPair[];
+    return pairs
+      .filter((p) => p.baseToken?.address === mint)
+      .sort((a, b) => (b.liquidity?.usd ?? 0) - (a.liquidity?.usd ?? 0));
+  }
+
   async getPrice(mint: string): Promise<number | null> {
     return (await this.getQuotes([mint])).get(mint)?.priceUsd ?? null;
   }

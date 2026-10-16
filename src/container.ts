@@ -6,6 +6,9 @@ import { SolanaClient } from './integrations/solana/solana.client.ts';
 import { SolanaWsClient } from './integrations/solana/solana-ws.client.ts';
 import { OnchainPriceClient } from './integrations/onchain/onchain-price.client.ts';
 import { OnchainPriceStream } from './integrations/onchain/onchain-price.stream.ts';
+import { DeepseekClient } from './integrations/deepseek/deepseek.client.ts';
+import { AgentService } from './modules/agent/agent.service.ts';
+import { AgentController } from './modules/agent/agent.controller.ts';
 import { SettingsRepository } from './modules/settings/settings.repository.ts';
 import { SettingsService } from './modules/settings/settings.service.ts';
 import { SettingsController } from './modules/settings/settings.controller.ts';
@@ -44,11 +47,13 @@ export function createContainer() {
   const positions = new PositionsService(positionsRepo);
   const trading = new TradingService(positionsRepo, positions, prices, settings, logs, [
     new PaperExecutor(),
-    new RealExecutor(pumpportal),
+    new RealExecutor(pumpportal, solana),
   ]);
 
+  const agent = new AgentService(new DeepseekClient(), dexscreener, prices, solana);
+
   const state = createBotState();
-  const scanner = new ScannerService(state, gmgn, positionsRepo, settings, trading, logs);
+  const scanner = new ScannerService(state, gmgn, positionsRepo, settings, trading, logs, agent);
   const livePrices = new PricesService();
   const monitor = new MonitorService(state, prices, priceStream, positionsRepo, settings, trading, logs, livePrices);
   priceStream.onQuote((mint, quote) => void monitor.handleQuote(mint, quote));
@@ -67,6 +72,7 @@ export function createContainer() {
       prices: new PricesController(livePrices),
       positions: new PositionsController(positions, trading),
       bot: new BotController(bot),
+      agent: new AgentController(agent),
     },
   };
 }

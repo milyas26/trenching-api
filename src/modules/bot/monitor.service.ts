@@ -12,6 +12,9 @@ import type { BotRuntimeState } from './bot.interfaces.ts';
 
 /** Harga dari stream bisa datang beberapa kali per detik; DB cukup ditulis sekali per detik per posisi. */
 const STREAM_WRITE_MS = 1_000;
+/** Sell yang gagal dicoba lagi dengan jeda 5 dtk, 10, 20, ... maks 2 menit, bukan di setiap tick harga. */
+const SELL_RETRY_BASE_MS = 5_000;
+const SELL_RETRY_MAX_MS = 120_000;
 
 /**
  * Update harga semua posisi open dan close yang kena aturan exit.
@@ -24,6 +27,7 @@ export class MonitorService {
   private open = new Map<number, Position>();
   private readonly closing = new Set<number>();
   private readonly lastWrite = new Map<number, number>();
+  private readonly sellRetry = new Map<number, { failures: number; at: number }>();
 
   constructor(
     private readonly state: BotRuntimeState,
@@ -84,6 +88,7 @@ export class MonitorService {
       next.set(row.id, row);
     }
     for (const id of this.lastWrite.keys()) if (!next.has(id)) this.lastWrite.delete(id);
+    for (const id of this.sellRetry.keys()) if (!next.has(id)) this.sellRetry.delete(id);
     this.open = next;
     this.live.retain(new Set(next.keys()));
   }
@@ -109,15 +114,20 @@ export class MonitorService {
       await this.positions.updatePrice(pos.id, price, highPrice, pnl);
     }
     if (!reason || this.closing.has(pos.id)) return;
+    if (now < (this.sellRetry.get(pos.id)?.at ?? 0)) return;
 
     this.closing.add(pos.id);
     this.open.delete(pos.id);
     try {
       await this.trading.close(pos.id, reason, price);
+      this.sellRetry.delete(pos.id);
       this.live.publishClosed(pos.id);
       if (![...this.open.values()].some((p) => p.mint === pos.mint)) this.stream.unwatch(pos.mint);
     } catch {
       // Error sell sudah dicatat oleh TradingService; posisi kembali open dan dimuat ulang di run() berikutnya.
+      const failures = (this.sellRetry.get(pos.id)?.failures ?? 0) + 1;
+      const delay = Math.min(SELL_RETRY_BASE_MS * 2 ** (failures - 1), SELL_RETRY_MAX_MS);
+      this.sellRetry.set(pos.id, { failures, at: Date.now() + delay });
     } finally {
       this.closing.delete(pos.id);
     }
