@@ -22,6 +22,19 @@ function toHotToken(t: RawHotToken): HotToken {
     change1h: t.pcp1h ?? null,
     createdAt: t.ct ?? null,
     launchpad: t.lpp ?? null,
+    safety: {
+      top10HolderPct: t.t10 == null ? null : Number((t.t10 * 100).toFixed(2)),
+      holderCount: t.hd ?? null,
+      mintRenounced: t.s_nm == null ? null : t.s_nm === 1,
+      freezeRenounced: t.s_blk == null ? null : t.s_blk === 1,
+      creatorStatus: t.d_ts || null,
+      rugRatio: t.rug ?? null,
+      sniperCount: t.snp ?? null,
+      smartMoneyCount: t.smt ?? null,
+      kolCount: t.kol ?? null,
+      washTrading: t.iwt ?? null,
+      communityTakeover: t.cto == null ? null : t.cto === 1,
+    },
   };
 }
 

@@ -2,9 +2,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import type { ToolDefinition } from '../../integrations/deepseek/deepseek.types.ts';
 import type { DexscreenerClient } from '../../integrations/dexscreener/dexscreener.client.ts';
 import type { PriceSource } from '../../integrations/dexscreener/dexscreener.types.ts';
-import type { SolanaClient } from '../../integrations/solana/solana.client.ts';
-import { base58Encode } from '../../integrations/solana/pubkey.ts';
-import { bondingCurveAddress, pumpSwapPoolAddress } from '../../integrations/onchain/onchain.layouts.ts';
+import type { TokenSafety } from '../../integrations/gmgn/gmgn.types.ts';
 import type { PriceSample } from './agent.interfaces.ts';
 
 export const MIN_WAIT_SEC = 5;
@@ -23,7 +21,7 @@ export const AGENT_TOOLS: ToolDefinition[] = [
     type: 'function',
     function: {
       name: 'get_holder_distribution',
-      description: 'Distribusi holder on-chain: persentase supply di 10 holder teratas (bonding curve / pool sudah dipisahkan) dan status mint/freeze authority.',
+      description: 'Distribusi holder dan keamanan token dari GMGN: persentase supply di 10 holder teratas, jumlah holder, status mint/freeze authority, status dev, rug ratio, sniper, smart money, KOL, wash trading.',
       parameters: { type: 'object', properties: {} },
     },
   },
@@ -59,18 +57,6 @@ export const AGENT_TOOLS: ToolDefinition[] = [
   },
 ];
 
-/** RPC publik sering 429 untuk getTokenLargestAccounts; coba ulang sekali dua kali sebelum menyerah. */
-async function withRetry<T>(fn: () => Promise<T>, attempts = 3): Promise<T> {
-  for (let i = 1; ; i++) {
-    try {
-      return await fn();
-    } catch (e) {
-      if (i >= attempts || !/429/.test((e as Error).message)) throw e;
-      await sleep(1500 * i);
-    }
-  }
-}
-
 const round = (n: number | null | undefined, digits = 2) => (n == null ? null : Number(n.toFixed(digits)));
 
 /** Data yang bisa diminta model. Satu instance per review token, menyimpan sampel harga selama review. */
@@ -80,9 +66,9 @@ export class TokenInspector {
 
   constructor(
     private readonly mint: string,
+    private readonly safety: TokenSafety,
     private readonly dexscreener: DexscreenerClient,
     private readonly prices: PriceSource,
-    private readonly solana: SolanaClient,
   ) {}
 
   /** Data market/holder tidak berubah berarti dalam satu review; panggilan ulang dapat hasil yang sama. */
@@ -115,35 +101,22 @@ export class TokenInspector {
     };
   }
 
+  /** Diambil dari hasil scan GMGN, jadi tidak butuh RPC Solana yang rate limit-nya ketat. */
   private async holderDistribution() {
-    const mint = await this.solana.getMintInfo(this.mint);
-    const largest = await withRetry(() => this.solana.getTokenLargestAccounts(this.mint));
-    // Owner token account ada di byte 32..64 layout SPL Token.
-    const accounts = await this.solana.getMultipleAccounts(largest.map((a) => a.address));
-    const pools: Record<string, string> = {
-      [bondingCurveAddress(this.mint)]: 'pump.fun bonding curve',
-      [pumpSwapPoolAddress(this.mint)]: 'PumpSwap pool',
-    };
-
-    const pct = (amount: number) => (mint.supply > 0 ? (amount / mint.supply) * 100 : 0);
-    const liquidity: { label: string; pct: number | null }[] = [];
-    const holders: number[] = [];
-    for (const a of largest) {
-      const data = accounts.get(a.address)?.data;
-      const owner = data && data.length >= 64 ? base58Encode(data.subarray(32, 64)) : null;
-      const label = owner ? pools[owner] : undefined;
-      if (label) liquidity.push({ label, pct: round(pct(a.uiAmount)) });
-      else holders.push(pct(a.uiAmount));
-    }
-    const top10 = holders.slice(0, 10);
-
+    const g = this.safety;
+    if (g.top10HolderPct === null && g.holderCount === null) throw new Error('GMGN tidak mengirim data holder untuk token ini');
     return {
-      mintAuthorityActive: mint.mintAuthority !== null,
-      freezeAuthorityActive: mint.freezeAuthority !== null,
-      liquidityAccounts: liquidity,
-      top1HolderPct: round(top10[0] ?? 0),
-      top10HoldersPct: round(top10.reduce((sum, p) => sum + p, 0)),
-      top10Each: top10.map((p) => round(p)),
+      top10HoldersPct: g.top10HolderPct,
+      holderCount: g.holderCount,
+      mintAuthorityActive: g.mintRenounced === null ? null : !g.mintRenounced,
+      freezeAuthorityActive: g.freezeRenounced === null ? null : !g.freezeRenounced,
+      creatorStatus: g.creatorStatus,
+      rugRatio: g.rugRatio,
+      sniperCount: g.sniperCount,
+      smartMoneyCount: g.smartMoneyCount,
+      kolCount: g.kolCount,
+      washTrading: g.washTrading,
+      communityTakeover: g.communityTakeover,
     };
   }
 

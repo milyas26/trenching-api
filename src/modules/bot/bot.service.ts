@@ -1,3 +1,4 @@
+import { setTimeout as sleep } from 'node:timers/promises';
 import { env } from '../../config/env.ts';
 import type { PumpportalClient } from '../../integrations/pumpportal/pumpportal.client.ts';
 import type { SolanaClient } from '../../integrations/solana/solana.client.ts';
@@ -11,6 +12,8 @@ import type { ScannerService } from './scanner.service.ts';
 
 /** /status dipoll tiap 5 detik; saldo cukup dicek ulang tiap 15 detik supaya RPC publik tidak kena rate limit. */
 const BALANCE_TTL_MS = 15_000;
+/** Batas tunggu fetch GMGN saat scan manual (timeout script GMGN 45 detik). */
+const SCAN_FETCH_WAIT_MS = 50_000;
 
 export class BotService {
   private balance = { sol: null as number | null, error: null as string | null, at: 0 };
@@ -76,10 +79,30 @@ export class BotService {
     await this.logs.info('Bot STOP');
   }
 
-  /** Scan manual. Buy hanya terjadi kalau bot sedang aktif. */
+  /**
+   * Scan manual. Buy hanya terjadi kalau bot sedang aktif; saat itu scan dijalankan lewat scheduler
+   * supaya review AI berjalan di belakang dan hitung mundur berikutnya mulai setelah review selesai.
+   * Request cukup menunggu daftar token GMGN diperbarui.
+   */
   async scanNow() {
     const { botEnabled } = await this.settings.get();
-    await this.scanner.run({ buy: botEnabled });
+    if (!botEnabled) {
+      await this.scanner.run({ buy: false });
+      return { error: this.state.lastScanError };
+    }
+
+    const before = this.state.lastScanAt;
+    const wasScanning = this.state.scanning;
+    this.scheduler.restartScan();
+    // Scan yang sudah berjalan sebelumnya berarti daftar token sudah segar; tidak perlu ditunggu.
+    const deadline = Date.now() + SCAN_FETCH_WAIT_MS;
+    let started = false;
+    while (!wasScanning && this.state.lastScanAt === before && Date.now() < deadline) {
+      // Scan selesai tanpa lastScanAt berubah berarti fetch GMGN gagal; error-nya ada di lastScanError.
+      if (started && !this.state.scanning) break;
+      started ||= this.state.scanning;
+      await sleep(250);
+    }
     return { error: this.state.lastScanError };
   }
 

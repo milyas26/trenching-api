@@ -3,7 +3,6 @@ import type { ChatMessage, ToolCall } from '../../integrations/deepseek/deepseek
 import type { DexscreenerClient } from '../../integrations/dexscreener/dexscreener.client.ts';
 import type { PriceSource } from '../../integrations/dexscreener/dexscreener.types.ts';
 import type { HotToken } from '../../integrations/gmgn/gmgn.types.ts';
-import type { SolanaClient } from '../../integrations/solana/solana.client.ts';
 import type { BotSettings } from '../settings/settings.interfaces.ts';
 import type { AgentDecision, AgentReview, AgentVerdict } from './agent.interfaces.ts';
 import { AGENT_TOOLS, TokenInspector } from './agent.tools.ts';
@@ -13,8 +12,8 @@ import { ReviewTrace } from './agent.trace.ts';
 const MAX_STEPS = 8;
 /** Buy baru diterima setelah harga dicek minimal sebanyak ini (sampel awal + recheck). */
 const MIN_PRICE_SAMPLES = 3;
-/** Token yang di-skip tidak ditinjau ulang selama ini, supaya scan berikutnya tidak membayar review yang sama. */
-const SKIP_TTL_MS = 30 * 60_000;
+/** Token yang sudah diputuskan (buy/skip) tidak ditinjau ulang selama ini, supaya scan berikutnya tidak membayar review yang sama. */
+const REVIEW_COOLDOWN_MS = 30 * 60_000;
 /** Review terakhir yang disimpan di memori untuk ditampilkan di app. */
 const KEEP_REVIEWS = 10;
 
@@ -28,6 +27,7 @@ Cara kerja:
 Pertimbangkan:
 - Mint authority atau freeze authority aktif adalah tanda bahaya besar.
 - Konsentrasi holder: top 10 di atas ~30% atau satu holder di atas ~10% (di luar bonding curve/pool) berisiko dump.
+- Data holder dari GMGN: rugRatio tinggi, sniper banyak, atau wash trading adalah tanda bahaya; dev yang sudah keluar (creator_close) berarti tidak ada lagi risiko dev dump.
 - Rasio buy/sell dan volume 5 menit terakhir: tekanan jual dominan berarti skip.
 - Likuiditas sangat tipis dibanding market cap berarti slippage besar dan mudah rug.
 - Harga yang sudah naik sangat tinggi dalam waktu singkat lalu mulai turun di sampel recheck berarti momentum habis.
@@ -39,26 +39,26 @@ const shortMint = (mint: string) => `${mint.slice(0, 4)}…${mint.slice(-4)}`;
 
 /** Agent DeepSeek yang meninjau satu token lewat beberapa putaran tool call sebelum bot buy. */
 export class AgentService {
-  private readonly skipped = new Map<string, number>();
+  /** mint -> waktu (ms) token boleh ditinjau lagi */
+  private readonly cooldown = new Map<string, number>();
   private readonly reviews: AgentReview[] = [];
 
   constructor(
     private readonly deepseek: DeepseekClient,
     private readonly dexscreener: DexscreenerClient,
     private readonly prices: PriceSource,
-    private readonly solana: SolanaClient,
   ) {}
 
   get isConfigured() {
     return this.deepseek.isConfigured;
   }
 
-  /** true kalau token ini di-skip agent belum lama ini. */
-  recentlySkipped(mint: string): boolean {
-    const until = this.skipped.get(mint);
+  /** true kalau token ini sudah diputuskan agent kurang dari 30 menit lalu. Review yang error boleh dicoba lagi. */
+  recentlyReviewed(mint: string): boolean {
+    const until = this.cooldown.get(mint);
     if (until === undefined) return false;
     if (until > Date.now()) return true;
-    this.skipped.delete(mint);
+    this.cooldown.delete(mint);
     return false;
   }
 
@@ -82,7 +82,7 @@ export class AgentService {
   }
 
   private async loop(token: HotToken, settings: BotSettings, trace: ReviewTrace): Promise<AgentDecision> {
-    const inspector = new TokenInspector(token.mint, this.dexscreener, this.prices, this.solana);
+    const inspector = new TokenInspector(token.mint, token.safety, this.dexscreener, this.prices);
     await inspector.samplePrice().catch(() => null);
 
     const messages: ChatMessage[] = [
@@ -126,7 +126,7 @@ export class AgentService {
   }
 
   private finish(mint: string, decision: AgentDecision): AgentDecision {
-    if (decision.decision === 'skip') this.skipped.set(mint, Date.now() + SKIP_TTL_MS);
+    this.cooldown.set(mint, Date.now() + REVIEW_COOLDOWN_MS);
     return decision;
   }
 }

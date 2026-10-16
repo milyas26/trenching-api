@@ -31,8 +31,19 @@ function summarize(kind: AgentStepKind, raw: unknown): { detail: string; failed:
   }
   if (kind === 'holders') {
     const auth = [data.mintAuthorityActive && 'mint authority AKTIF', data.freezeAuthorityActive && 'freeze authority AKTIF']
-      .filter(Boolean).join(', ') || 'authority aman';
-    return { failed: false, detail: `Top 10 ${data.top10HoldersPct}% · top 1 ${data.top1HolderPct}% · ${auth}` };
+      .filter(Boolean).join(', ')
+      || (data.mintAuthorityActive === null && data.freezeAuthorityActive === null ? 'authority tidak diketahui' : 'authority aman');
+    const g = data;
+    return {
+      failed: false,
+      detail: [
+        `Top 10 ${data.top10HoldersPct}%`,
+        g.holderCount != null ? `${g.holderCount} holder` : null,
+        auth,
+        g.creatorStatus === 'creator_close' ? 'dev sudah keluar' : g.creatorStatus === 'creator_hold' ? 'dev masih pegang' : null,
+        typeof g.rugRatio === 'number' ? `rug ${Math.round(g.rugRatio * 100)}%` : null,
+      ].filter(Boolean).join(' · '),
+    };
   }
   if (kind === 'recheck') {
     return {

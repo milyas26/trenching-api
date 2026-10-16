@@ -14,13 +14,6 @@ interface RpcAccount {
   owner: string;
 }
 
-interface MintParsed {
-  supply: string;
-  decimals: number;
-  mintAuthority: string | null;
-  freezeAuthority: string | null;
-}
-
 interface RpcTokenAccount {
   account: { data: { parsed: { info: { tokenAmount: { amount: string } } } } };
 }
@@ -28,18 +21,6 @@ interface RpcTokenAccount {
 export interface SignatureStatus {
   err: unknown;
   confirmationStatus: 'processed' | 'confirmed' | 'finalized' | null;
-}
-
-export interface MintInfo {
-  supply: number;
-  decimals: number;
-  mintAuthority: string | null;
-  freezeAuthority: string | null;
-}
-
-export interface LargestAccount {
-  address: string;
-  uiAmount: number;
 }
 
 export interface AccountInfo {
@@ -89,31 +70,6 @@ export class SolanaClient {
       });
     }
     return result;
-  }
-
-  /** Supply dan authority mint (SPL Token maupun Token-2022). */
-  async getMintInfo(mint: string): Promise<MintInfo> {
-    const { value } = await this.rpc<{ value: { data: { parsed: { info: MintParsed } } } | null }>('getAccountInfo', [
-      mint,
-      { encoding: 'jsonParsed', commitment: 'confirmed' },
-    ]);
-    const info = value?.data.parsed?.info;
-    if (!info) throw new Error('akun mint tidak ditemukan');
-    return {
-      supply: Number(info.supply) / 10 ** info.decimals,
-      decimals: info.decimals,
-      mintAuthority: info.mintAuthority,
-      freezeAuthority: info.freezeAuthority,
-    };
-  }
-
-  /** 20 token account terbesar (alamat token account, bukan owner). */
-  async getTokenLargestAccounts(mint: string): Promise<LargestAccount[]> {
-    const { value } = await this.rpc<{ value: { address: string; uiAmount: number | null }[] }>(
-      'getTokenLargestAccounts',
-      [mint, { commitment: 'confirmed' }],
-    );
-    return value.map((a) => ({ address: a.address, uiAmount: a.uiAmount ?? 0 }));
   }
 
   private async rpc<T>(method: string, params: unknown[]): Promise<T> {

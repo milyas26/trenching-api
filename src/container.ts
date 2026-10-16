@@ -50,7 +50,7 @@ export function createContainer() {
     new RealExecutor(pumpportal, solana),
   ]);
 
-  const agent = new AgentService(new DeepseekClient(), dexscreener, prices, solana);
+  const agent = new AgentService(new DeepseekClient(), dexscreener, prices);
 
   const state = createBotState();
   const scanner = new ScannerService(state, gmgn, positionsRepo, settings, trading, logs, agent);

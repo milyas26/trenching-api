@@ -25,10 +25,22 @@ export class ScannerService {
     private readonly agent: AgentService,
   ) {}
 
-  /** @param buy false = cuma refresh daftar kandidat (scan manual saat bot berhenti) */
-  async run({ buy }: { buy: boolean }): Promise<void> {
-    if (this.state.scanning) return;
+  private current: Promise<void> | null = null;
+
+  /**
+   * @param buy false = cuma refresh daftar kandidat (scan manual saat bot berhenti)
+   *
+   * Kalau scan (termasuk review AI) masih berjalan, pemanggil ikut menunggu run itu selesai,
+   * supaya hitung mundur scan berikutnya baru dimulai setelah semuanya beres.
+   */
+  run(opts: { buy: boolean }): Promise<void> {
+    this.current ??= this.execute(opts).finally(() => { this.current = null; });
+    return this.current;
+  }
+
+  private async execute({ buy }: { buy: boolean }): Promise<void> {
     this.state.scanning = true;
+    this.state.nextScanAt = null;
     try {
       const settings = await this.settings.get();
       const tokens = await this.gmgn.fetchHotTokens(settings.filter);
@@ -70,7 +82,7 @@ export class ScannerService {
     let reviewed = 0;
     for (const token of tokens) {
       if (bought >= slots || reviewed >= MAX_REVIEWS_PER_SCAN) break;
-      if (this.agent.recentlySkipped(token.mint)) continue;
+      if (this.agent.recentlyReviewed(token.mint)) continue;
       reviewed++;
 
       const label = token.symbol ?? shortMint(token.mint);
