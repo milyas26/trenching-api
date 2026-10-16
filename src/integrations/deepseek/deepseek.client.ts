@@ -14,7 +14,15 @@ export class DeepseekClient {
     const res = await fetch(CHAT_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${env.deepseekApiKey}` },
-      body: JSON.stringify({ model: env.deepseekModel, messages, tools, tool_choice: toolChoice, temperature: 0.2 }),
+      // Thinking mode menolak tool_choice 'required'/fungsi paksa, jadi dimatikan agar loop agent tetap bisa memaksa tool call.
+      body: JSON.stringify({
+        model: env.deepseekModel,
+        messages,
+        tools,
+        tool_choice: toolChoice,
+        thinking: { type: 'disabled' },
+        temperature: 0.2,
+      }),
       signal: AbortSignal.timeout(60_000),
     });
     if (!res.ok) throw new Error(`DeepSeek HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`);
