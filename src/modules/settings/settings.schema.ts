@@ -37,6 +37,8 @@ export const botSettingsSchema = z.object({
 
   /** Token dicek AI agent (DeepSeek) sebelum buy; false = langsung buy semua yang lolos filter. */
   aiAgentEnabled: z.boolean().default(true),
+  /** 0 = mati. Buy dari AI ditolak kalau harga naik kurang dari X% antara sampel pertama dan recheck terakhir. */
+  minRecheckGainPct: z.coerce.number().min(0).default(10),
 
   paperStartBalanceSol: z.coerce.number().min(0).default(10),
 

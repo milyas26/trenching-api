@@ -4,6 +4,7 @@ import type { SettingsService } from '../settings/settings.service.ts';
 import type { LogsService } from '../logs/logs.service.ts';
 import type { TradingService } from '../trading/trading.service.ts';
 import type { AgentService } from '../agent/agent.service.ts';
+import type { SnapshotsService } from '../snapshots/snapshots.service.ts';
 import type { BotSettings } from '../settings/settings.interfaces.ts';
 import type { HotToken } from '../../integrations/gmgn/gmgn.types.ts';
 import type { BotRuntimeState } from './bot.interfaces.ts';
@@ -23,6 +24,7 @@ export class ScannerService {
     private readonly trading: TradingService,
     private readonly logs: LogsService,
     private readonly agent: AgentService,
+    private readonly snapshots: SnapshotsService,
   ) {}
 
   private current: Promise<void> | null = null;
@@ -43,7 +45,9 @@ export class ScannerService {
     this.state.nextScanAt = null;
     try {
       const settings = await this.settings.get();
-      const tokens = await this.gmgn.fetchHotTokens(settings.filter);
+      const scan = await this.gmgn.fetchHotTokens(settings.filter);
+      const { tokens } = scan;
+      await this.snapshots.scan(settings.filter, scan);
       this.state.lastScanAt = new Date();
       this.state.lastScanError = null;
       this.state.lastScanTokens = tokens;
@@ -59,6 +63,7 @@ export class ScannerService {
       if (settings.aiAgentEnabled) await this.buyReviewed(fresh, slots);
       else {
         for (const token of fresh.slice(0, slots)) {
+          await this.snapshots.unreviewed(token, settings.mode);
           if (!(await this.trading.open(token, settings))) break;
         }
       }
@@ -89,9 +94,11 @@ export class ScannerService {
       let settings: BotSettings = await this.settings.get();
       try {
         const d = await this.agent.review(token, settings);
+        await this.snapshots.reviewed(token, settings.mode, d);
         await this.logs.info(`AI ${d.decision.toUpperCase()} ${label} (${d.confidence}%, ${d.steps} langkah): ${d.reason}`);
         if (d.decision !== 'buy') continue;
       } catch (e) {
+        await this.snapshots.failed(token, settings.mode, (e as Error).message);
         await this.logs.error(`AI review ${label} gagal, token dilewati: ${(e as Error).message}`);
         continue;
       }

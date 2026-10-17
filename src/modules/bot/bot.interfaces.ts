@@ -29,7 +29,7 @@ export interface BotStatus {
   stats: PositionStats;
 }
 
-export interface Candidate extends HotToken {
+export interface Candidate extends Omit<HotToken, 'raw'> {
   bought: boolean;
 }
 

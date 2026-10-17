@@ -42,6 +42,8 @@ function summarize(kind: AgentStepKind, raw: unknown): { detail: string; failed:
         auth,
         g.creatorStatus === 'creator_close' ? 'dev sudah keluar' : g.creatorStatus === 'creator_hold' ? 'dev masih pegang' : null,
         typeof g.rugRatio === 'number' ? `rug ${Math.round(g.rugRatio * 100)}%` : null,
+        typeof g.dumpRisk?.bundlerPct === 'number' ? `bundler ${g.dumpRisk.bundlerPct}%` : null,
+        g.duplicateLogoCount ? `logo dipakai ${g.duplicateLogoCount} token lain` : null,
       ].filter(Boolean).join(' · '),
     };
   }

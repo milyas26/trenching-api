@@ -14,6 +14,7 @@ Contoh:
     python3 gmgn_hot_searches.py                 # SOL, interval 1h
     python3 gmgn_hot_searches.py --chain sol --interval 5m
     python3 gmgn_hot_searches.py --json          # output JSON mentah
+    python3 gmgn_hot_searches.py --response      # seluruh response API (meta + tokens)
     python3 gmgn_hot_searches.py --min-mc 100 --max-mc 200 --min-age 10 --max-age 600
     #   ^ MC dalam ribu USD (100 = $100K), age dalam menit (600 = 10 jam)
 """
@@ -81,8 +82,8 @@ def build_body(chain, interval, limit, min_mc, max_mc, min_age, max_age) -> dict
     }
 
 
-def fetch_hot(chain="sol", interval="1h", limit=500,
-              min_mc=None, max_mc=None, min_age=None, max_age=None) -> list:
+def fetch_response(chain="sol", interval="1h", limit=500,
+                   min_mc=None, max_mc=None, min_age=None, max_age=None) -> dict:
     body = build_body(chain, interval, limit, min_mc, max_mc, min_age, max_age)
     r = requests.post(
         ENDPOINT,
@@ -95,7 +96,11 @@ def fetch_hot(chain="sol", interval="1h", limit=500,
     data = r.json()
     if data.get("code") != 0:
         raise RuntimeError(f"API error: {data.get('message')}")
-    return data["data"][0]["tokens"]
+    return data
+
+
+def fetch_hot(*args, **kwargs) -> list:
+    return fetch_response(*args, **kwargs)["data"][0]["tokens"]
 
 
 def _fmt_age(token: dict) -> str:
@@ -119,16 +124,21 @@ def main() -> int:
     ap.add_argument("--max-mc", type=int, default=None, help="market cap maksimum, dalam ribu USD")
     ap.add_argument("--min-age", type=int, default=None, help="umur minimum, dalam MENIT (mis. 10)")
     ap.add_argument("--max-age", type=int, default=None, help="umur maksimum, dalam MENIT (mis. 600 = 10 jam)")
-    ap.add_argument("--json", action="store_true", help="print JSON mentah")
+    ap.add_argument("--json", action="store_true", help="print JSON mentah (list token saja)")
+    ap.add_argument("--response", action="store_true", help="print seluruh response API apa adanya")
     args = ap.parse_args()
 
     try:
-        tokens = fetch_hot(args.chain, args.interval, args.limit,
-                           args.min_mc, args.max_mc, args.min_age, args.max_age)
+        response = fetch_response(args.chain, args.interval, args.limit,
+                                  args.min_mc, args.max_mc, args.min_age, args.max_age)
     except Exception as e:
         print(f"gagal ambil data: {e}", file=sys.stderr)
         return 1
 
+    if args.response:
+        print(json.dumps(response, ensure_ascii=False))
+        return 0
+    tokens = response["data"][0]["tokens"]
     if args.json:
         print(json.dumps(tokens, ensure_ascii=False, indent=2))
         return 0

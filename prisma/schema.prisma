@@ -85,3 +85,64 @@ model Log {
 
   @@map("logs")
 }
+
+enum SnapshotDecision {
+  buy
+  skip
+  error
+  no_ai
+}
+
+/// Data lengkap token saat bot memutuskan buy/skip, untuk analisa. Join ke positions lewat (mode, mint).
+model TokenSnapshot {
+  id             Int              @id @default(autoincrement())
+  mode           TradeMode
+  mint           String
+  symbol         String?
+  decision       SnapshotDecision
+  confidence     Int?
+  reason         String?
+  /// Kenaikan harga dari sampel pertama ke recheck terakhir, dalam persen.
+  recheckGainPct Float?           @map("recheck_gain_pct")
+  /// Objek mentah GMGN hot_searches, semua field.
+  gmgn           Json
+  /// Data pair DexScreener yang dilihat agent.
+  market         Json?
+  chart          Json?
+  priceSamples   Json?            @map("price_samples")
+  createdAt      DateTime         @default(now()) @map("created_at")
+
+  @@index([mint])
+  @@index([createdAt])
+  @@map("token_snapshots")
+}
+
+/// Satu panggilan GMGN hot_searches per scan bot.
+model GmgnScan {
+  id         Int         @id @default(autoincrement())
+  /// Filter yang dikirim bot ke GMGN.
+  filter     Json
+  /// Seluruh response GMGN kecuali daftar token (code, message, interval, chain, filter_id, version, ...).
+  response   Json
+  tokenCount Int         @map("token_count")
+  createdAt  DateTime    @default(now()) @map("created_at")
+  tokens     GmgnToken[]
+
+  @@index([createdAt])
+  @@map("gmgn_scans")
+}
+
+/// Satu token dari satu scan GMGN, objek mentah apa adanya.
+model GmgnToken {
+  id        Int      @id @default(autoincrement())
+  scanId    Int      @map("scan_id")
+  scan      GmgnScan @relation(fields: [scanId], references: [id], onDelete: Cascade)
+  mint      String
+  symbol    String?
+  data      Json
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([mint])
+  @@index([scanId])
+  @@map("gmgn_tokens")
+}

@@ -5,7 +5,7 @@ import type { PriceSource } from '../../integrations/dexscreener/dexscreener.typ
 import type { GeckoterminalClient } from '../../integrations/geckoterminal/geckoterminal.client.ts';
 import type { HotToken } from '../../integrations/gmgn/gmgn.types.ts';
 import type { BotSettings } from '../settings/settings.interfaces.ts';
-import type { AgentDecision, AgentReview, AgentVerdict } from './agent.interfaces.ts';
+import type { AgentDecision, AgentReview, AgentVerdict, ReviewEvidence, ReviewedDecision } from './agent.interfaces.ts';
 import { AGENT_TOOLS, TokenInspector } from './agent.tools.ts';
 import type { ChartStats } from './agent.chart.ts';
 import { ReviewTrace } from './agent.trace.ts';
@@ -34,7 +34,13 @@ Pertimbangkan:
 - Likuiditas sangat tipis dibanding market cap berarti slippage besar dan mudah rug.
 - Chart yang naik terlalu mulus (candle hijau beruntun dengan body kecil yang rata, hampir tanpa candle merah) atau rata-rata trade hanya beberapa dolar adalah volume buatan bot yang biasanya diakhiri rug. Chart organik punya koreksi dan ukuran trade yang bervariasi.
 - Harga yang sudah naik sangat tinggi dalam waktu singkat lalu mulai turun di sampel recheck berarti momentum habis.
+- Momentum GMGN (change1mPct, change5mPct, buys vs sells) harus searah dengan recheck. change5mPct negatif tajam berarti sedang dijual.
+- belowAthPct = seberapa jauh market cap di bawah ATH-nya. Jauh di bawah ATH (mis. >50%) setelah pump biasanya fase distribusi; dekat ATH dengan momentum naik lebih sehat.
+- dumpRisk: bundlerPct, botDegenPct, top70SniperHoldPct, ratTraderPct, dan devTeamHoldPct tinggi berarti banyak supply di tangan yang siap jual. entrapmentPct tinggi berarti banyak trader sudah nyangkut dan akan jual saat harga naik.
+- duplicateLogoCount > 0 berarti logo dipakai token lain (copycat). xRenameCount > 0 berarti akun X pernah ganti nama (akun daur ulang).
+- promotion (boost/iklan/profil berbayar DexScreener) berarti ada yang membayar promosi: bisa menarik pembeli, tapi bukan tanda aman.
 - Bot memakai take profit dan stop loss yang tertera; beli hanya kalau peluang mencapai take profit lebih besar dari kena stop loss.
+- Kalau strategy.minRecheckGainPct diisi, buy otomatis ditolak sistem bila changeSinceFirstSamplePct di recheck terakhir di bawah angka itu.
 
 Kalau ragu, skip. Modal lebih penting daripada peluang yang terlewat.`;
 
@@ -71,22 +77,22 @@ export class AgentService {
     return this.reviews;
   }
 
-  async review(token: HotToken, settings: BotSettings): Promise<AgentDecision> {
+  async review(token: HotToken, settings: BotSettings): Promise<ReviewedDecision> {
     const trace = new ReviewTrace(token, MAX_STEPS);
     this.reviews.unshift(trace.review);
     this.reviews.splice(KEEP_REVIEWS);
+    const inspector = new TokenInspector(token.mint, token.safety, token.signals, this.dexscreener, this.gecko, this.prices);
     try {
-      const decision = await this.loop(token, settings, trace);
+      const decision = await this.loop(token, settings, trace, inspector);
       trace.finish(decision);
-      return decision;
+      return { ...decision, evidence: await evidenceOf(inspector) };
     } catch (e) {
       trace.fail((e as Error).message);
       throw e;
     }
   }
 
-  private async loop(token: HotToken, settings: BotSettings, trace: ReviewTrace): Promise<AgentDecision> {
-    const inspector = new TokenInspector(token.mint, token.safety, this.dexscreener, this.gecko, this.prices);
+  private async loop(token: HotToken, settings: BotSettings, trace: ReviewTrace, inspector: TokenInspector): Promise<AgentDecision> {
 
     // Gate sistem sebelum DeepSeek: chart bot sudah jelas dari angka, tidak perlu bayar review.
     trace.toolStarted('get_chart_stats');
@@ -124,6 +130,12 @@ export class AgentService {
             trace.decisionRejected(`Harga baru dicek ${inspector.samples.length}x, minimal ${MIN_PRICE_SAMPLES}x`);
             messages.push(toolResult(call, { error: `Belum cukup data harga. Panggil recheck_price ${missing}x lagi sebelum buy.` }));
             continue;
+          }
+          const gain = priceGainPct(inspector);
+          if (decision?.decision === 'buy' && settings.minRecheckGainPct > 0 && gain < settings.minRecheckGainPct) {
+            const reason = `Harga cuma naik ${gain.toFixed(1)}% saat recheck, minimal ${settings.minRecheckGainPct}%. Alasan AI: ${decision.reason}`;
+            trace.decisionRejected(`Kenaikan recheck ${gain.toFixed(1)}% < ${settings.minRecheckGainPct}%`);
+            return this.finish(token.mint, { ...decision, decision: 'skip', reason, steps: step });
           }
           if (decision) return this.finish(token.mint, { ...decision, steps: step });
           messages.push(toolResult(call, { error: 'argumen submit_decision tidak valid' }));
@@ -167,6 +179,25 @@ async function runTool(inspector: TokenInspector, call: ToolCall): Promise<unkno
   }
 }
 
+/** Dihitung dari sampel pertama (sebelum model mulai) ke sampel terakhir; sama dengan changeSinceFirstSamplePct yang dilihat model. */
+function priceGainPct(inspector: TokenInspector): number {
+  const first = inspector.samples[0];
+  const last = inspector.samples.at(-1);
+  if (!first || !last) return 0;
+  return ((last.priceUsd - first.priceUsd) / first.priceUsd) * 100;
+}
+
+/** Market memakai pair DexScreener yang sudah diambil gate chart, jadi tidak menambah request. */
+async function evidenceOf(inspector: TokenInspector): Promise<ReviewEvidence> {
+  const [market, chart] = await Promise.all([inspector.load('market'), inspector.load('chart')]);
+  return {
+    market,
+    chart,
+    priceSamples: inspector.samples,
+    recheckGainPct: inspector.samples.length >= 2 ? priceGainPct(inspector) : null,
+  };
+}
+
 function parseDecision(call: ToolCall): Omit<AgentDecision, 'steps'> | null {
   const args = safeJson(call.function.arguments) as { decision?: string; confidence?: number; reason?: string } | null;
   if (args?.decision !== 'buy' && args?.decision !== 'skip') return null;
@@ -201,7 +232,13 @@ function describe(t: HotToken) {
     marketCapUsd: t.mc,
     liquidityUsd: t.liquidity,
     volumeUsd: t.volume,
+    change1mPct: t.signals.change1mPct,
+    change5mPct: t.signals.change5mPct,
     change1hPct: t.change1h,
+    buys: t.signals.buys,
+    sells: t.signals.sells,
+    athMarketCapUsd: t.signals.athMc,
+    belowAthPct: t.signals.belowAthPct,
     ageMinutes: t.createdAt ? Math.round((Date.now() / 1000 - t.createdAt) / 60) : null,
   };
 }
@@ -213,5 +250,6 @@ function strategyOf(s: BotSettings) {
     stopLossPct: s.stopLossPct,
     trailingStopPct: s.trailingStopPct || null,
     maxHoldMinutes: s.maxHoldMinutes || null,
+    minRecheckGainPct: s.minRecheckGainPct || null,
   };
 }

@@ -4,7 +4,7 @@ import type { DexscreenerClient } from '../../integrations/dexscreener/dexscreen
 import type { DexPair } from '../../integrations/dexscreener/dexscreener.types.ts';
 import type { GeckoterminalClient } from '../../integrations/geckoterminal/geckoterminal.client.ts';
 import type { PriceSource } from '../../integrations/dexscreener/dexscreener.types.ts';
-import type { TokenSafety } from '../../integrations/gmgn/gmgn.types.ts';
+import type { TokenSafety, TokenSignals } from '../../integrations/gmgn/gmgn.types.ts';
 import type { PriceSample } from './agent.interfaces.ts';
 import { analyzeChart, CHART_WINDOW, type ChartStats } from './agent.chart.ts';
 
@@ -24,7 +24,7 @@ export const AGENT_TOOLS: ToolDefinition[] = [
     type: 'function',
     function: {
       name: 'get_holder_distribution',
-      description: 'Distribusi holder dan keamanan token dari GMGN: persentase supply di 10 holder teratas, jumlah holder, status mint/freeze authority, status dev, rug ratio, sniper, smart money, KOL, wash trading.',
+      description: 'Distribusi holder, keamanan, dan sinyal risiko dari GMGN: top 10 holder, jumlah holder, mint/freeze authority, status dev, rug ratio, sniper, smart money, KOL, wash trading, bundler, bot degen, entrapment, sniper yang masih pegang, insider, logo copycat, dan promosi berbayar DexScreener.',
       parameters: { type: 'object', properties: {} },
     },
   },
@@ -82,6 +82,7 @@ export class TokenInspector {
   constructor(
     private readonly mint: string,
     private readonly safety: TokenSafety,
+    private readonly signals: TokenSignals,
     private readonly dexscreener: DexscreenerClient,
     private readonly gecko: GeckoterminalClient,
     private readonly prices: PriceSource,
@@ -148,6 +149,7 @@ export class TokenInspector {
   /** Diambil dari hasil scan GMGN, jadi tidak butuh RPC Solana yang rate limit-nya ketat. */
   private async holderDistribution() {
     const g = this.safety;
+    const s = this.signals;
     if (g.top10HolderPct === null && g.holderCount === null) throw new Error('GMGN tidak mengirim data holder untuk token ini');
     return {
       top10HoldersPct: g.top10HolderPct,
@@ -161,6 +163,21 @@ export class TokenInspector {
       kolCount: g.kolCount,
       washTrading: g.washTrading,
       communityTakeover: g.communityTakeover,
+      dumpRisk: {
+        bundlerPct: s.bundlerPct,
+        botDegenPct: s.botDegenPct,
+        entrapmentPct: s.entrapmentPct,
+        top70SniperHoldPct: s.top70SniperHoldPct,
+        ratTraderPct: s.ratTraderPct,
+        devTeamHoldPct: s.devTeamHoldPct,
+      },
+      duplicateLogoCount: s.duplicateLogoCount,
+      xRenameCount: s.xRenameCount,
+      promotion: {
+        dexscreenerBoosts: s.dexscreenerBoosts,
+        dexscreenerPaidProfile: s.dexscreenerPaidProfile,
+        dexscreenerAd: s.dexscreenerAd,
+      },
     };
   }
 

@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { env } from '../../config/env.ts';
-import type { HotSearchFilter, HotToken, RawHotToken } from './gmgn.types.ts';
+import type { HotScan, HotSearchFilter, HotToken, RawHotToken } from './gmgn.types.ts';
 
 const OPTIONAL_FLAGS = {
   minMc: '--min-mc',
@@ -8,6 +8,9 @@ const OPTIONAL_FLAGS = {
   minAge: '--min-age',
   maxAge: '--max-age',
 } as const satisfies Partial<Record<keyof HotSearchFilter, string>>;
+
+const pct = (ratio: number | undefined) => (ratio == null ? null : Number((ratio * 100).toFixed(2)));
+const flag = (v: number | undefined) => (v == null ? null : v > 0);
 
 function toHotToken(t: RawHotToken): HotToken {
   return {
@@ -35,6 +38,26 @@ function toHotToken(t: RawHotToken): HotToken {
       washTrading: t.iwt ?? null,
       communityTakeover: t.cto == null ? null : t.cto === 1,
     },
+    signals: {
+      change1mPct: t.pcp1m ?? null,
+      change5mPct: t.pcp5m ?? null,
+      buys: t.bu ?? null,
+      sells: t.se ?? null,
+      athMc: t.hhmc ?? null,
+      belowAthPct: t.hhmc && t.mc ? Number(((1 - t.mc / t.hhmc) * 100).toFixed(1)) : null,
+      bundlerPct: pct(t.bdrr),
+      botDegenPct: pct(t.bdr),
+      entrapmentPct: pct(t.etpr),
+      top70SniperHoldPct: pct(t.t70_shr),
+      ratTraderPct: pct(t.rat),
+      devTeamHoldPct: pct(t.dhr),
+      duplicateLogoCount: t.img_dup == null || t.img_dup === '' ? null : Number(t.img_dup),
+      dexscreenerBoosts: t.dx_bf ?? null,
+      dexscreenerPaidProfile: flag(t.dx_ul),
+      dexscreenerAd: flag(t.dx_ad),
+      xRenameCount: t.xcc ?? null,
+    },
+    raw: t as unknown as Record<string, unknown>,
   };
 }
 
@@ -43,9 +66,9 @@ function toHotToken(t: RawHotToken): HotToken {
  * lewat gmgn_hot_searches.py (curl_cffi, impersonate Chrome).
  */
 export class GmgnClient {
-  fetchHotTokens(filter: HotSearchFilter): Promise<HotToken[]> {
+  fetchHotTokens(filter: HotSearchFilter): Promise<HotScan> {
     const args = [
-      env.gmgnScript, '--json',
+      env.gmgnScript, '--response',
       '--chain', filter.chain,
       '--interval', filter.interval,
       '--limit', String(filter.limit),
@@ -59,8 +82,9 @@ export class GmgnClient {
       execFile(env.pythonBin, args, { timeout: 45_000, maxBuffer: 50 * 1024 * 1024 }, (err, stdout, stderr) => {
         if (err) return reject(new Error((stderr || err.message).trim()));
         try {
-          const raw = JSON.parse(stdout) as RawHotToken[];
-          resolve(raw.filter((t) => t.a).map(toHotToken));
+          const { data, ...rest } = JSON.parse(stdout) as { data: { tokens: RawHotToken[] }[] };
+          const { tokens, ...block } = data[0]!;
+          resolve({ response: { ...rest, ...block }, tokens: tokens.filter((t) => t.a).map(toHotToken) });
         } catch (e) {
           reject(new Error(`output script bukan JSON: ${(e as Error).message}`));
         }

@@ -19,6 +19,8 @@ import { LogsController } from './modules/logs/logs.controller.ts';
 import { PositionsRepository } from './modules/positions/positions.repository.ts';
 import { PositionsService } from './modules/positions/positions.service.ts';
 import { PositionsController } from './modules/positions/positions.controller.ts';
+import { SnapshotsRepository } from './modules/snapshots/snapshots.repository.ts';
+import { SnapshotsService } from './modules/snapshots/snapshots.service.ts';
 import { TradingService } from './modules/trading/trading.service.ts';
 import { PaperExecutor, RealExecutor } from './modules/trading/executors.ts';
 import { createBotState } from './modules/bot/bot.state.ts';
@@ -46,6 +48,7 @@ export function createContainer() {
   const settings = new SettingsService(settingsRepo);
   const logs = new LogsService(logsRepo);
   const positions = new PositionsService(positionsRepo);
+  const snapshots = new SnapshotsService(new SnapshotsRepository(prisma));
   const trading = new TradingService(positionsRepo, positions, prices, settings, logs, [
     new PaperExecutor(),
     new RealExecutor(pumpportal, solana),
@@ -54,7 +57,7 @@ export function createContainer() {
   const agent = new AgentService(new DeepseekClient(), dexscreener, new GeckoterminalClient(), prices);
 
   const state = createBotState();
-  const scanner = new ScannerService(state, gmgn, positionsRepo, settings, trading, logs, agent);
+  const scanner = new ScannerService(state, gmgn, positionsRepo, settings, trading, logs, agent, snapshots);
   const livePrices = new PricesService();
   const monitor = new MonitorService(state, prices, priceStream, positionsRepo, settings, trading, logs, livePrices);
   priceStream.onQuote((mint, quote) => void monitor.handleQuote(mint, quote));

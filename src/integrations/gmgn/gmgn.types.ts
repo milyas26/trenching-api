@@ -42,6 +42,54 @@ export interface RawHotToken {
   kol?: number;
   iwt?: boolean;
   cto?: number;
+  pcp1m?: number;
+  pcp5m?: number;
+  bu?: number;
+  se?: number;
+  /** market cap tertinggi sepanjang sejarah */
+  hhmc?: number;
+  /** rasio bundler, 0-1 */
+  bdrr?: number;
+  /** rasio bot degen, 0-1 */
+  bdr?: number;
+  /** rasio trader yang terjebak (entrapment), 0-1 */
+  etpr?: number;
+  /** rasio yang masih dipegang 70 sniper pertama, 0-1 */
+  t70_shr?: number;
+  /** rasio rat trader (insider), 0-1 */
+  rat?: number;
+  /** rasio supply di dev/tim, 0-1 */
+  dhr?: number;
+  /** jumlah token lain dengan logo sama */
+  img_dup?: string;
+  /** jumlah boost DexScreener */
+  dx_bf?: number;
+  /** 1 = profil DexScreener sudah dibayar/di-update */
+  dx_ul?: number;
+  dx_ad?: number;
+  /** berapa kali akun X ganti nama */
+  xcc?: number;
+}
+
+/** Indikator tambahan GMGN untuk analisa AI: momentum, jarak dari ATH, risiko dump, copycat, promosi. Rasio sudah dalam persen. */
+export interface TokenSignals {
+  change1mPct: number | null;
+  change5mPct: number | null;
+  buys: number | null;
+  sells: number | null;
+  athMc: number | null;
+  belowAthPct: number | null;
+  bundlerPct: number | null;
+  botDegenPct: number | null;
+  entrapmentPct: number | null;
+  top70SniperHoldPct: number | null;
+  ratTraderPct: number | null;
+  devTeamHoldPct: number | null;
+  duplicateLogoCount: number | null;
+  dexscreenerBoosts: number | null;
+  dexscreenerPaidProfile: boolean | null;
+  dexscreenerAd: boolean | null;
+  xRenameCount: number | null;
 }
 
 /** Data holder dan keamanan dari GMGN; dipakai agent saat RPC tidak bisa membaca holder. */
@@ -59,6 +107,12 @@ export interface TokenSafety {
   communityTakeover: boolean | null;
 }
 
+/** Hasil satu panggilan hot_searches: response apa adanya (tanpa list token) dan token yang sudah dipetakan. */
+export interface HotScan {
+  response: Record<string, unknown>;
+  tokens: HotToken[];
+}
+
 export interface HotToken {
   mint: string;
   symbol: string | null;
@@ -73,4 +127,7 @@ export interface HotToken {
   createdAt: number | null;
   launchpad: string | null;
   safety: TokenSafety;
+  signals: TokenSignals;
+  /** Objek GMGN apa adanya, termasuk field yang tidak dipetakan di atas; disimpan ke token_snapshots. */
+  raw: Record<string, unknown>;
 }

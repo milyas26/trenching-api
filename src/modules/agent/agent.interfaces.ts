@@ -9,6 +9,16 @@ export interface AgentDecision {
   steps: number;
 }
 
+/** Data yang sudah dimuat agent selama review; disimpan ke token_snapshots tanpa fetch ulang. */
+export interface ReviewEvidence {
+  market: unknown;
+  chart: unknown;
+  priceSamples: PriceSample[];
+  recheckGainPct: number | null;
+}
+
+export type ReviewedDecision = AgentDecision & { evidence: ReviewEvidence };
+
 export interface PriceSample {
   /** unix ms */
   at: number;

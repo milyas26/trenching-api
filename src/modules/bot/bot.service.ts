@@ -111,7 +111,7 @@ export class BotService {
     const bought = await this.positionsRepo.boughtMints();
     return {
       at: this.state.lastScanAt,
-      tokens: this.state.lastScanTokens.map((t) => ({ ...t, bought: bought.has(t.mint) })),
+      tokens: this.state.lastScanTokens.map(({ raw: _raw, ...t }) => ({ ...t, bought: bought.has(t.mint) })),
     };
   }
 
