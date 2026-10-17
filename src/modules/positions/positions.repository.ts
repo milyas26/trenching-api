@@ -34,9 +34,12 @@ export class PositionsRepository implements IPositionsRepository {
     return this.db.position.findMany({ where: { status: 'open' } });
   }
 
-  async claim(data: NewPosition) {
+  async claim({ tokenInfo, ...data }: NewPosition) {
     try {
-      const row = await this.db.position.create({ data: { ...data, status: 'opening' }, select: { id: true } });
+      const row = await this.db.position.create({
+        data: { ...data, tokenInfo: (tokenInfo ?? undefined) as Prisma.InputJsonValue | undefined, status: 'opening' },
+        select: { id: true },
+      });
       return row.id;
     } catch (e) {
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') return null;

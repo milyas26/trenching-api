@@ -72,6 +72,8 @@ model Position {
   entryMc       Float?         @map("entry_mc")
   /// Supply token (market cap / harga) saat entry; dipakai untuk menurunkan market cap dari harga.
   supply        Float?
+  /// Kolom Token Info GMGN (TokenInfo) saat token dibeli.
+  tokenInfo     Json?          @map("token_info")
   currentPrice  Float?         @map("current_price")
   highPrice     Float?         @map("high_price")
   pnlPct        Float?         @map("pnl_pct")

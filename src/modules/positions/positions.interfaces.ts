@@ -1,5 +1,6 @@
 import type { Position } from '../../generated/prisma/client.ts';
 import type { ExitReason, PositionStatus, TradeMode } from '../../generated/prisma/enums.ts';
+import type { TokenInfo } from '../../integrations/gmgn/gmgn.types.ts';
 
 export type { Position, ExitReason, PositionStatus, TradeMode };
 
@@ -23,6 +24,7 @@ export interface NewPosition {
   logo: string | null;
   amountSol: number;
   entryMc: number | null;
+  tokenInfo: TokenInfo | null;
 }
 
 export interface OpenedPositionData {

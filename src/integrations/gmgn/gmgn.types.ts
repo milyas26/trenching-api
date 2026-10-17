@@ -64,8 +64,13 @@ export interface RawHotToken {
   t70_shr?: number;
   /** rasio rat trader (insider), 0-1 */
   rat?: number;
-  /** rasio supply di dev/tim, 0-1 */
+  /**
+   * Bukan dev hold: nilainya hampir selalu sama dengan t70_shr dan tetap besar walau dev sudah jual.
+   * Arti pastinya belum diketahui, jadi tidak dipakai.
+   */
   dhr?: number;
+  /** rasio supply yang masih dipegang dev, 0-1 (kolom DEV di GMGN; 0 setelah dev jual) */
+  d_br?: number;
   /** jumlah wallet bot degen */
   bdc?: number;
   /** jumlah token lain dengan logo sama */

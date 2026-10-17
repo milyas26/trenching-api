@@ -79,7 +79,7 @@ function toHotToken(t: RawHotToken): HotToken {
       entrapmentPct: pct(t.etpr),
       top70SniperHoldPct: pct(t.t70_shr),
       ratTraderPct: pct(t.rat),
-      devTeamHoldPct: pct(t.dhr),
+      devTeamHoldPct: pct(t.d_br),
       duplicateLogoCount: t.img_dup == null || t.img_dup === '' ? null : Number(t.img_dup),
       dexscreenerBoosts: t.dx_bf ?? null,
       dexscreenerPaidProfile: flag(t.dx_ul),
@@ -88,7 +88,7 @@ function toHotToken(t: RawHotToken): HotToken {
     },
     info: {
       top10Pct: pct(t.t10),
-      devHoldPct: pct(t.dhr),
+      devHoldPct: pct(t.d_br),
       devSold: t.d_ts ? t.d_ts === 'creator_close' : null,
       insiderPct: pct(t.rat),
       bundlerPct: pct(t.bdrr),

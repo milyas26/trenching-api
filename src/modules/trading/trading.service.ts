@@ -55,7 +55,7 @@ export class TradingService {
     // Klaim mint dulu (unique akun+mode+mint) supaya token yang sama tidak pernah dibeli dua kali.
     const id = await this.repo.claim({
       accountId, mode, mint: token.mint, symbol: token.symbol, name: token.name, logo: token.logo,
-      amountSol, entryMc: token.mc,
+      amountSol, entryMc: token.mc, tokenInfo: token.info,
     });
     if (id === null) return true;
 
