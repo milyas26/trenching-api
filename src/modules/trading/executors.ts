@@ -1,8 +1,6 @@
-import { env } from '../../config/env.ts';
 import type { PumpportalClient } from '../../integrations/pumpportal/pumpportal.client.ts';
-import type { TradeOptions } from '../../integrations/pumpportal/pumpportal.types.ts';
 import type { SolanaClient } from '../../integrations/solana/solana.client.ts';
-import { NoTokensError, type TradeExecutor } from './trading.interfaces.ts';
+import { NoTokensError, type TradeContext, type TradeExecutor } from './trading.interfaces.ts';
 
 /** Simulasi: tidak ada transaksi on-chain, harga diambil dari pasar oleh TradingService. */
 export class PaperExecutor implements TradeExecutor {
@@ -33,25 +31,25 @@ export class RealExecutor implements TradeExecutor {
     private readonly solana: SolanaClient,
   ) {}
 
-  async maxBuySol(opts: TradeOptions) {
-    const balance = await this.solana.getBalanceSol(this.wallet());
-    return Math.max(0, (balance - opts.priorityFeeSol * 2 - FEE_BUFFER_SOL) / (1 + PUMPPORTAL_FEE));
+  async maxBuySol(ctx: TradeContext) {
+    const balance = await this.solana.getBalanceSol(wallet(ctx));
+    return Math.max(0, (balance - ctx.priorityFeeSol * 2 - FEE_BUFFER_SOL) / (1 + PUMPPORTAL_FEE));
   }
 
-  async buy(mint: string, amountSol: number, opts: TradeOptions) {
-    const signature = await this.pumpportal.buy(mint, amountSol, opts);
+  async buy(mint: string, amountSol: number, ctx: TradeContext) {
+    const signature = await this.pumpportal.buy(ctx.apiKey, mint, amountSol, ctx);
     const landed = await this.confirm(signature, 'buy');
-    if (!landed && (await this.tokenBalance(mint)) === 0n) {
+    if (!landed && (await this.tokenBalance(ctx, mint)) === 0n) {
       throw new Error(`tx buy ${signature} tidak terkonfirmasi dan token tidak ada di wallet`);
     }
     return signature;
   }
 
-  async sellAll(mint: string, opts: TradeOptions) {
-    if ((await this.tokenBalance(mint)) === 0n) throw new NoTokensError();
-    const signature = await this.pumpportal.sellAll(mint, opts);
+  async sellAll(mint: string, ctx: TradeContext) {
+    if ((await this.tokenBalance(ctx, mint)) === 0n) throw new NoTokensError();
+    const signature = await this.pumpportal.sellAll(ctx.apiKey, mint, ctx);
     const landed = await this.confirm(signature, 'sell');
-    if (!landed && (await this.tokenBalance(mint)) > 0n) {
+    if (!landed && (await this.tokenBalance(ctx, mint)) > 0n) {
       throw new Error(`tx sell ${signature} tidak terkonfirmasi, token masih di wallet`);
     }
     return signature;
@@ -70,12 +68,12 @@ export class RealExecutor implements TradeExecutor {
     return false;
   }
 
-  private tokenBalance(mint: string) {
-    return this.solana.getTokenBalanceRaw(this.wallet(), mint);
+  private tokenBalance(ctx: TradeContext, mint: string) {
+    return this.solana.getTokenBalanceRaw(wallet(ctx), mint);
   }
+}
 
-  private wallet() {
-    if (!env.walletPublicKey) throw new Error('WALLET_PUBLIC_KEY belum diset di .env');
-    return env.walletPublicKey;
-  }
+function wallet(ctx: TradeContext) {
+  if (!ctx.wallet) throw new Error('Wallet belum diisi untuk akun ini (Pengaturan > Akun, atau WALLET_PUBLIC_KEY di api/.env)');
+  return ctx.wallet;
 }

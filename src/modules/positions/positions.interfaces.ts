@@ -9,11 +9,13 @@ export const FINISHED_STATUSES: PositionStatus[] = ['closed', 'failed'];
 export type PositionView = 'open' | 'closed';
 
 export interface ListPositionsQuery {
+  accountId: number;
   view?: PositionView;
   mode?: TradeMode;
 }
 
 export interface NewPosition {
+  accountId: number;
   mode: TradeMode;
   mint: string;
   symbol: string | null;
@@ -61,10 +63,12 @@ export interface PositionStats {
 
 export interface IPositionsRepository {
   list(query: ListPositionsQuery, limit: number): Promise<Position[]>;
-  boughtMints(): Promise<Set<string>>;
-  countActive(mode: TradeMode): Promise<number>;
+  /** Semua mint yang pernah dicoba buy oleh akun ini, paper maupun real, termasuk yang gagal. */
+  boughtMints(accountId: number): Promise<Set<string>>;
+  /** Tanpa mode = semua mode. */
+  countActive(accountId: number, mode?: TradeMode): Promise<number>;
   findOpen(): Promise<Position[]>;
-  /** Insert status 'opening'; null kalau mint sudah pernah ada di mode itu. */
+  /** Insert status 'opening'; null kalau mint sudah pernah ada di akun dan mode itu. */
   claim(data: NewPosition): Promise<number | null>;
   markOpen(id: number, data: OpenedPositionData): Promise<void>;
   markFailed(id: number, error: string): Promise<void>;
@@ -73,7 +77,7 @@ export interface IPositionsRepository {
   claimForClose(id: number): Promise<Position | null>;
   markClosed(id: number, data: ClosedPositionData): Promise<void>;
   revertToOpen(id: number, error: string): Promise<void>;
-  recoverStuck(): Promise<{ id: number; mint: string; status: PositionStatus }[]>;
-  /** Statistik semua mode sekaligus (3 query total, bukan 3 per mode). */
-  allModeStats(): Promise<Record<TradeMode, ModeStats>>;
+  recoverStuck(): Promise<{ id: number; accountId: number; mint: string; status: PositionStatus }[]>;
+  /** Statistik semua mode satu akun sekaligus (3 query total, bukan 3 per mode). */
+  allModeStats(accountId: number): Promise<Record<TradeMode, ModeStats>>;
 }

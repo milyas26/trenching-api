@@ -10,6 +10,9 @@ export interface LogEntry {
 }
 
 export interface ILogsRepository {
-  create(level: LogLevel, message: string): Promise<void>;
-  latest(limit: number): Promise<LogEntry[]>;
+  /** accountId null = log sistem, tampil di semua akun. */
+  create(accountId: number | null, level: LogLevel, message: string): Promise<void>;
+  latest(accountId: number, limit: number): Promise<LogEntry[]>;
 }
+
+export type Logger = Record<LogLevel, (message: string) => Promise<void>>;

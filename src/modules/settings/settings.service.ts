@@ -1,31 +1,39 @@
+import { notFound } from '../../common/errors.ts';
 import { botSettingsSchema } from './settings.schema.ts';
 import type { BotSettings, ISettingsRepository, SettingsPatch } from './settings.interfaces.ts';
 
-/** Settings disimpan satu baris JSON dan di-cache di memori. */
+/** Settings per akun, di-cache di memori. */
 export class SettingsService {
-  private cache: BotSettings | null = null;
+  private readonly cache = new Map<number, BotSettings>();
 
   constructor(private readonly repo: ISettingsRepository) {}
 
-  async get(): Promise<BotSettings> {
-    if (this.cache) return this.cache;
-    const stored = await this.repo.find();
+  /** Melempar 404 kalau akun tidak ada (mis. sudah dihapus). */
+  async get(accountId: number): Promise<BotSettings> {
+    const cached = this.cache.get(accountId);
+    if (cached) return cached;
+    const row = await this.repo.find(accountId);
+    if (!row) throw notFound(`Akun #${accountId} tidak ditemukan`);
     // parse() mengisi default untuk field yang belum ada di data lama
-    const settings = botSettingsSchema.parse(stored ?? {}) as BotSettings;
-    if (!stored) await this.repo.save(settings);
-    this.cache = settings;
+    const settings = botSettingsSchema.parse(row.settings ?? {}) as BotSettings;
+    this.cache.set(accountId, settings);
     return settings;
   }
 
-  async update(patch: SettingsPatch & { botEnabled?: boolean }): Promise<BotSettings> {
-    const current = await this.get();
+  async update(accountId: number, patch: SettingsPatch & { botEnabled?: boolean }): Promise<BotSettings> {
+    const current = await this.get(accountId);
     const next = botSettingsSchema.parse({
       ...current,
       ...patch,
       filter: { ...current.filter, ...patch.filter },
+      tokenFilter: { ...current.tokenFilter, ...patch.tokenFilter },
     }) as BotSettings;
-    await this.repo.save(next);
-    this.cache = next;
+    await this.repo.saveSettings(accountId, next);
+    this.cache.set(accountId, next);
     return next;
+  }
+
+  forget(accountId: number) {
+    this.cache.delete(accountId);
   }
 }

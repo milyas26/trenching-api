@@ -10,7 +10,9 @@ import { GeckoterminalClient } from './integrations/geckoterminal/geckoterminal.
 import { DeepseekClient } from './integrations/deepseek/deepseek.client.ts';
 import { AgentService } from './modules/agent/agent.service.ts';
 import { AgentController } from './modules/agent/agent.controller.ts';
-import { SettingsRepository } from './modules/settings/settings.repository.ts';
+import { AccountsRepository } from './modules/accounts/accounts.repository.ts';
+import { AccountsService } from './modules/accounts/accounts.service.ts';
+import { AccountsController } from './modules/accounts/accounts.controller.ts';
 import { SettingsService } from './modules/settings/settings.service.ts';
 import { SettingsController } from './modules/settings/settings.controller.ts';
 import { LogsRepository } from './modules/logs/logs.repository.ts';
@@ -23,7 +25,7 @@ import { SnapshotsRepository } from './modules/snapshots/snapshots.repository.ts
 import { SnapshotsService } from './modules/snapshots/snapshots.service.ts';
 import { TradingService } from './modules/trading/trading.service.ts';
 import { PaperExecutor, RealExecutor } from './modules/trading/executors.ts';
-import { createBotState } from './modules/bot/bot.state.ts';
+import { BotState } from './modules/bot/bot.state.ts';
 import { ScannerService } from './modules/bot/scanner.service.ts';
 import { MonitorService } from './modules/bot/monitor.service.ts';
 import { PricesService } from './modules/prices/prices.service.ts';
@@ -41,37 +43,39 @@ export function createContainer() {
   const prices = new OnchainPriceClient(solana, dexscreener);
   const priceStream = new OnchainPriceStream(solana, new SolanaWsClient());
 
-  const settingsRepo = new SettingsRepository(prisma);
+  const accountsRepo = new AccountsRepository(prisma);
   const logsRepo = new LogsRepository(prisma);
   const positionsRepo = new PositionsRepository(prisma);
 
-  const settings = new SettingsService(settingsRepo);
+  const settings = new SettingsService(accountsRepo);
+  const accounts = new AccountsService(accountsRepo, settings, positionsRepo);
   const logs = new LogsService(logsRepo);
   const positions = new PositionsService(positionsRepo);
   const snapshots = new SnapshotsService(new SnapshotsRepository(prisma));
-  const trading = new TradingService(positionsRepo, positions, prices, settings, logs, [
+  const trading = new TradingService(positionsRepo, positions, prices, settings, accounts, logs, [
     new PaperExecutor(),
     new RealExecutor(pumpportal, solana),
   ]);
 
   const agent = new AgentService(new DeepseekClient(), dexscreener, new GeckoterminalClient(), prices);
 
-  const state = createBotState();
+  const state = new BotState();
   const scanner = new ScannerService(state, gmgn, positionsRepo, settings, trading, logs, agent, snapshots);
   const livePrices = new PricesService();
   const monitor = new MonitorService(state, prices, priceStream, positionsRepo, settings, trading, logs, livePrices);
   priceStream.onQuote((mint, quote) => void monitor.handleQuote(mint, quote));
-  const scheduler = new BotScheduler(state, settings, scanner, monitor);
-  const bot = new BotService(state, settings, positions, positionsRepo, scheduler, scanner, pumpportal, solana, logs);
+  const scheduler = new BotScheduler(state, settings, accounts, scanner, monitor);
+  const bot = new BotService(state, settings, accounts, positions, positionsRepo, scheduler, scanner, solana, logs);
 
   return {
     prisma,
-    settings,
+    accounts,
     scheduler,
     priceStream,
     bot,
     controllers: {
-      settings: new SettingsController(settings, logs, scheduler),
+      accounts: new AccountsController(accounts, scheduler),
+      settings: new SettingsController(settings, accounts, logs, scheduler),
       logs: new LogsController(logs),
       prices: new PricesController(livePrices),
       positions: new PositionsController(positions, trading),

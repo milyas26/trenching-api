@@ -37,16 +37,30 @@ enum LogLevel {
   sell
 }
 
-model Setting {
-  id        Int      @id @default(1)
-  data      Json
-  updatedAt DateTime @updatedAt @map("updated_at")
+/// Satu bot dengan pengaturan, posisi, dan wallet sendiri.
+model Account {
+  id               Int             @id @default(autoincrement())
+  name             String
+  /// BotSettings (lihat settings.schema.ts) sebagai JSON.
+  settings         Json
+  /// PumpPortal Lightning API key untuk mode real; null = pakai PUMPPORTAL_API_KEY dari .env.
+  pumpportalApiKey String?         @map("pumpportal_api_key")
+  /// null = pakai WALLET_PUBLIC_KEY dari .env.
+  walletPublicKey  String?         @map("wallet_public_key")
+  createdAt        DateTime        @default(now()) @map("created_at")
+  updatedAt        DateTime        @updatedAt @map("updated_at")
+  positions        Position[]
+  logs             Log[]
+  snapshots        TokenSnapshot[]
+  scans            GmgnScan[]
 
-  @@map("settings")
+  @@map("accounts")
 }
 
 model Position {
   id            Int            @id @default(autoincrement())
+  accountId     Int            @map("account_id")
+  account       Account        @relation(fields: [accountId], references: [id], onDelete: Cascade)
   mode          TradeMode
   mint          String
   symbol        String?
@@ -72,17 +86,21 @@ model Position {
   closedAt      DateTime?      @map("closed_at")
   priceUpdatedAt DateTime?     @map("price_updated_at")
 
-  @@unique([mode, mint])
+  @@unique([accountId, mode, mint])
   @@index([status])
   @@map("positions")
 }
 
 model Log {
   id        BigInt   @id @default(autoincrement())
+  /// null = log sistem yang tidak terkait satu akun (mis. cek harga semua posisi).
+  accountId Int?     @map("account_id")
+  account   Account? @relation(fields: [accountId], references: [id], onDelete: Cascade)
   level     LogLevel
   message   String
   createdAt DateTime @default(now()) @map("created_at")
 
+  @@index([accountId])
   @@map("logs")
 }
 
@@ -96,6 +114,8 @@ enum SnapshotDecision {
 /// Data lengkap token saat bot memutuskan buy/skip, untuk analisa. Join ke positions lewat (mode, mint).
 model TokenSnapshot {
   id             Int              @id @default(autoincrement())
+  accountId      Int              @map("account_id")
+  account        Account          @relation(fields: [accountId], references: [id], onDelete: Cascade)
   mode           TradeMode
   mint           String
   symbol         String?
@@ -104,7 +124,7 @@ model TokenSnapshot {
   reason         String?
   /// Kenaikan harga dari sampel pertama ke recheck terakhir, dalam persen.
   recheckGainPct Float?           @map("recheck_gain_pct")
-  /// Objek mentah GMGN hot_searches, semua field.
+  /// Objek mentah GMGN (hot_searches atau trending), semua field.
   gmgn           Json
   /// Data pair DexScreener yang dilihat agent.
   market         Json?
@@ -117,9 +137,13 @@ model TokenSnapshot {
   @@map("token_snapshots")
 }
 
-/// Satu panggilan GMGN hot_searches per scan bot.
+/// Satu panggilan GMGN per scan bot.
 model GmgnScan {
   id         Int         @id @default(autoincrement())
+  accountId  Int         @map("account_id")
+  account    Account     @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  /// hot_searches | trending
+  source     String      @default("hot_searches")
   /// Filter yang dikirim bot ke GMGN.
   filter     Json
   /// Seluruh response GMGN kecuali daftar token (code, message, interval, chain, filter_id, version, ...).
@@ -128,6 +152,7 @@ model GmgnScan {
   createdAt  DateTime    @default(now()) @map("created_at")
   tokens     GmgnToken[]
 
+  @@index([accountId])
   @@index([createdAt])
   @@map("gmgn_scans")
 }

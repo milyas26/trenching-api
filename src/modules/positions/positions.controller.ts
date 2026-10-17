@@ -1,5 +1,6 @@
 import type { FastifyRequest } from 'fastify';
 import { z } from 'zod';
+import { accountIdOf } from '../../common/account.ts';
 import type { PositionsService } from './positions.service.ts';
 import type { TradingService } from '../trading/trading.service.ts';
 
@@ -15,7 +16,7 @@ export class PositionsController {
     private readonly trading: TradingService,
   ) {}
 
-  list = (req: FastifyRequest) => this.positions.list(listQuery.parse(req.query));
+  list = (req: FastifyRequest) => this.positions.list({ accountId: accountIdOf(req), ...listQuery.parse(req.query) });
 
   close = async (req: FastifyRequest) => {
     const { id } = idParams.parse(req.params);

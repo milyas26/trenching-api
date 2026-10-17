@@ -14,9 +14,11 @@ export class SnapshotsRepository implements ISnapshotsRepository {
     });
   }
 
-  async createScan({ filter, response, tokens }: NewGmgnScan) {
+  async createScan({ accountId, source, filter, response, tokens }: NewGmgnScan) {
     await this.db.gmgnScan.create({
       data: {
+        accountId,
+        source,
         filter: filter as Prisma.InputJsonValue,
         response: response as Prisma.InputJsonValue,
         tokenCount: tokens.length,

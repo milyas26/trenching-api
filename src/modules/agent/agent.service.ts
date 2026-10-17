@@ -48,9 +48,9 @@ const shortMint = (mint: string) => `${mint.slice(0, 4)}…${mint.slice(-4)}`;
 
 /** Agent DeepSeek yang meninjau satu token lewat beberapa putaran tool call sebelum bot buy. */
 export class AgentService {
-  /** mint -> waktu (ms) token boleh ditinjau lagi */
+  /** "akun:mint" -> waktu (ms) token boleh ditinjau lagi oleh akun itu */
   private readonly cooldown = new Map<string, number>();
-  private readonly reviews: AgentReview[] = [];
+  private readonly reviews = new Map<number, AgentReview[]>();
 
   constructor(
     private readonly deepseek: DeepseekClient,
@@ -64,26 +64,29 @@ export class AgentService {
   }
 
   /** true kalau token ini sudah diputuskan agent kurang dari 30 menit lalu. Review yang error boleh dicoba lagi. */
-  recentlyReviewed(mint: string): boolean {
-    const until = this.cooldown.get(mint);
+  recentlyReviewed(accountId: number, mint: string): boolean {
+    const key = `${accountId}:${mint}`;
+    const until = this.cooldown.get(key);
     if (until === undefined) return false;
     if (until > Date.now()) return true;
-    this.cooldown.delete(mint);
+    this.cooldown.delete(key);
     return false;
   }
 
   /** Terbaru dulu; review yang sedang berjalan ikut dengan status running. */
-  recentReviews(): AgentReview[] {
-    return this.reviews;
+  recentReviews(accountId: number): AgentReview[] {
+    return this.reviews.get(accountId) ?? [];
   }
 
-  async review(token: HotToken, settings: BotSettings): Promise<ReviewedDecision> {
+  async review(accountId: number, token: HotToken, settings: BotSettings): Promise<ReviewedDecision> {
     const trace = new ReviewTrace(token, MAX_STEPS);
-    this.reviews.unshift(trace.review);
-    this.reviews.splice(KEEP_REVIEWS);
+    const reviews = this.reviews.get(accountId) ?? [];
+    reviews.unshift(trace.review);
+    reviews.splice(KEEP_REVIEWS);
+    this.reviews.set(accountId, reviews);
     const inspector = new TokenInspector(token.mint, token.safety, token.signals, this.dexscreener, this.gecko, this.prices);
     try {
-      const decision = await this.loop(token, settings, trace, inspector);
+      const decision = await this.loop(`${accountId}:${token.mint}`, token, settings, trace, inspector);
       trace.finish(decision);
       return { ...decision, evidence: await evidenceOf(inspector) };
     } catch (e) {
@@ -92,7 +95,7 @@ export class AgentService {
     }
   }
 
-  private async loop(token: HotToken, settings: BotSettings, trace: ReviewTrace, inspector: TokenInspector): Promise<AgentDecision> {
+  private async loop(cooldownKey: string, token: HotToken, settings: BotSettings, trace: ReviewTrace, inspector: TokenInspector): Promise<AgentDecision> {
 
     // Gate sistem sebelum DeepSeek: chart bot sudah jelas dari angka, tidak perlu bayar review.
     trace.toolStarted('get_chart_stats');
@@ -100,7 +103,7 @@ export class AgentService {
     trace.toolFinished('get_chart_stats', chart);
     if (chart.botFlags?.length) {
       const decision = { decision: 'skip' as const, confidence: 100, reason: `Chart buatan bot: ${chart.botFlags.join('; ')}.`, steps: 0 };
-      return this.finish(token.mint, decision);
+      return this.finish(cooldownKey, decision);
     }
 
     await inspector.samplePrice().catch(() => null);
@@ -135,9 +138,9 @@ export class AgentService {
           if (decision?.decision === 'buy' && settings.minRecheckGainPct > 0 && gain < settings.minRecheckGainPct) {
             const reason = `Harga cuma naik ${gain.toFixed(1)}% saat recheck, minimal ${settings.minRecheckGainPct}%. Alasan AI: ${decision.reason}`;
             trace.decisionRejected(`Kenaikan recheck ${gain.toFixed(1)}% < ${settings.minRecheckGainPct}%`);
-            return this.finish(token.mint, { ...decision, decision: 'skip', reason, steps: step });
+            return this.finish(cooldownKey, { ...decision, decision: 'skip', reason, steps: step });
           }
-          if (decision) return this.finish(token.mint, { ...decision, steps: step });
+          if (decision) return this.finish(cooldownKey, { ...decision, steps: step });
           messages.push(toolResult(call, { error: 'argumen submit_decision tidak valid' }));
           continue;
         }
@@ -148,11 +151,11 @@ export class AgentService {
         messages.push(toolResult(call, result));
       }
     }
-    return this.finish(token.mint, { decision: 'skip', confidence: 0, reason: `tidak ada keputusan dalam ${MAX_STEPS} langkah`, steps: MAX_STEPS });
+    return this.finish(cooldownKey, { decision: 'skip', confidence: 0, reason: `tidak ada keputusan dalam ${MAX_STEPS} langkah`, steps: MAX_STEPS });
   }
 
-  private finish(mint: string, decision: AgentDecision): AgentDecision {
-    this.cooldown.set(mint, Date.now() + REVIEW_COOLDOWN_MS);
+  private finish(cooldownKey: string, decision: AgentDecision): AgentDecision {
+    this.cooldown.set(cooldownKey, Date.now() + REVIEW_COOLDOWN_MS);
     return decision;
   }
 }

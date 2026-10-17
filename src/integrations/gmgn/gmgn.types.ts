@@ -1,5 +1,11 @@
 export type HotInterval = '1m' | '5m' | '1h' | '6h' | '24h';
 
+/** Endpoint GMGN yang dipakai sebagai sumber token. */
+export const TOKEN_SOURCES = ['hot_searches', 'trending'] as const;
+export type TokenSource = (typeof TOKEN_SOURCES)[number];
+/** Nama sumber di log aktivitas, sama dengan label di app. */
+export const TOKEN_SOURCE_LABEL: Record<TokenSource, string> = { hot_searches: 'Hot searches', trending: 'Trending' };
+
 export interface HotSearchFilter {
   chain: string;
   interval: HotInterval;
@@ -60,6 +66,8 @@ export interface RawHotToken {
   rat?: number;
   /** rasio supply di dev/tim, 0-1 */
   dhr?: number;
+  /** jumlah wallet bot degen */
+  bdc?: number;
   /** jumlah token lain dengan logo sama */
   img_dup?: string;
   /** jumlah boost DexScreener */
@@ -107,6 +115,25 @@ export interface TokenSafety {
   communityTakeover: boolean | null;
 }
 
+/**
+ * Kolom "Token Info" di tabel GMGN, dalam persen. GMGN tidak menyediakan filter untuk ini,
+ * jadi disaring setelah fetch (lihat token-filter.ts).
+ */
+export interface TokenInfo {
+  top10Pct: number | null;
+  devHoldPct: number | null;
+  /** Dev sudah menjual semua (label "DS" di GMGN). */
+  devSold: boolean | null;
+  insiderPct: number | null;
+  bundlerPct: number | null;
+  phishingPct: number | null;
+  sniperPct: number | null;
+  dexPaid: boolean | null;
+  communityTakeover: boolean | null;
+  botDegenCount: number | null;
+  botDegenPct: number | null;
+}
+
 /** Hasil satu panggilan hot_searches: response apa adanya (tanpa list token) dan token yang sudah dipetakan. */
 export interface HotScan {
   response: Record<string, unknown>;
@@ -128,6 +155,7 @@ export interface HotToken {
   launchpad: string | null;
   safety: TokenSafety;
   signals: TokenSignals;
+  info: TokenInfo;
   /** Objek GMGN apa adanya, termasuk field yang tidak dipetakan di atas; disimpan ke token_snapshots. */
   raw: Record<string, unknown>;
 }

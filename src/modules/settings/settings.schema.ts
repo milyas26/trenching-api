@@ -1,7 +1,9 @@
 import { z } from 'zod';
 import { PUMP_POOLS } from '../../integrations/pumpportal/pumpportal.types.ts';
+import { TOKEN_SOURCES } from '../../integrations/gmgn/gmgn.types.ts';
 
 const nullableNumber = z.coerce.number().min(0).nullable();
+const nullablePct = z.coerce.number().min(0).max(100).nullable();
 
 export const hotSearchFilterSchema = z.object({
   chain: z.string().min(1).default('sol'),
@@ -11,6 +13,23 @@ export const hotSearchFilterSchema = z.object({
   maxMc: nullableNumber.default(null),
   minAge: nullableNumber.default(null),
   maxAge: nullableNumber.default(null),
+});
+
+/**
+ * Filter kolom "Token Info" GMGN, diterapkan setelah fetch karena API GMGN tidak punya filternya.
+ * null / false = tidak disaring. Token tanpa data untuk filter yang aktif ikut ditolak.
+ */
+export const tokenFilterSchema = z.object({
+  maxTop10Pct: nullablePct.default(null),
+  maxDevHoldPct: nullablePct.default(null),
+  devSoldOnly: z.boolean().default(false),
+  maxInsiderPct: nullablePct.default(null),
+  maxBundlerPct: nullablePct.default(null),
+  maxPhishingPct: nullablePct.default(null),
+  maxSniperPct: nullablePct.default(null),
+  dexPaidOnly: z.boolean().default(false),
+  maxBotDegenCount: z.coerce.number().int().min(0).nullable().default(null),
+  maxBotDegenPct: nullablePct.default(null),
 });
 
 export const botSettingsSchema = z.object({
@@ -42,12 +61,26 @@ export const botSettingsSchema = z.object({
 
   paperStartBalanceSol: z.coerce.number().min(0).default(10),
 
+  source: z.enum(TOKEN_SOURCES).default('hot_searches'),
   filter: hotSearchFilterSchema.default(hotSearchFilterSchema.parse({})),
+  tokenFilter: tokenFilterSchema.default(tokenFilterSchema.parse({})),
 });
 
+/**
+ * Zod 4 tetap mengisi .default() di field yang dibuat optional lewat .partial(),
+ * jadi patch parsial akan menimpa field lain dengan default. Default dibuang dulu.
+ */
+function withoutDefaults<S extends z.ZodRawShape>(schema: z.ZodObject<S>) {
+  const shape = Object.fromEntries(
+    Object.entries(schema.shape).map(([key, field]) => [key, field instanceof z.ZodDefault ? field.unwrap() : field]),
+  );
+  return z.object(shape as { [K in keyof S]: S[K] extends z.ZodDefault<infer T> ? T : S[K] }).partial();
+}
+
 /** Payload PUT /settings: semua field opsional, botEnabled diatur lewat /bot/start|stop. */
-export const settingsPatchSchema = botSettingsSchema
-  .omit({ botEnabled: true, filter: true })
-  .partial()
-  .extend({ filter: hotSearchFilterSchema.partial().optional() })
+export const settingsPatchSchema = withoutDefaults(botSettingsSchema.omit({ botEnabled: true, filter: true, tokenFilter: true }))
+  .extend({
+    filter: withoutDefaults(hotSearchFilterSchema).optional(),
+    tokenFilter: withoutDefaults(tokenFilterSchema).optional(),
+  })
   .strict();

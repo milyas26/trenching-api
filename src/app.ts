@@ -5,6 +5,7 @@ import { errorHandler } from './common/errors.ts';
 import type { Container } from './container.ts';
 import { botRoutes } from './modules/bot/bot.routes.ts';
 import { settingsRoutes } from './modules/settings/settings.routes.ts';
+import { accountsRoutes } from './modules/accounts/accounts.routes.ts';
 import { positionsRoutes } from './modules/positions/positions.routes.ts';
 import { logsRoutes } from './modules/logs/logs.routes.ts';
 import { pricesRoutes } from './modules/prices/prices.routes.ts';
@@ -20,6 +21,7 @@ export async function buildApp({ controllers }: Container) {
 
   await app.register(async (api) => {
     await api.register(botRoutes(controllers.bot));
+    await api.register(accountsRoutes(controllers.accounts));
     await api.register(settingsRoutes(controllers.settings));
     await api.register(positionsRoutes(controllers.positions));
     await api.register(logsRoutes(controllers.logs));

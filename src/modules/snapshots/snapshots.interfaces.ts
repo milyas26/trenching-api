@@ -1,8 +1,10 @@
 import type { SnapshotDecision, TradeMode } from '../../generated/prisma/enums.ts';
+import type { TokenSource } from '../../integrations/gmgn/gmgn.types.ts';
 
 export type { SnapshotDecision };
 
 export interface NewTokenSnapshot {
+  accountId: number;
   mode: TradeMode;
   mint: string;
   symbol: string | null;
@@ -17,6 +19,8 @@ export interface NewTokenSnapshot {
 }
 
 export interface NewGmgnScan {
+  accountId: number;
+  source: TokenSource;
   filter: unknown;
   response: Record<string, unknown>;
   tokens: { mint: string; symbol: string | null; data: Record<string, unknown> }[];

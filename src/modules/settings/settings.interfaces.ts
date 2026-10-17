@@ -5,7 +5,8 @@ import type { PumpPool } from '../../integrations/pumpportal/pumpportal.types.ts
 export type BotSettings = Omit<z.infer<typeof botSettingsSchema>, 'pool'> & { pool: PumpPool };
 export type SettingsPatch = z.infer<typeof settingsPatchSchema>;
 
+/** Settings disimpan sebagai JSON di baris akun (tabel accounts). */
 export interface ISettingsRepository {
-  find(): Promise<unknown | null>;
-  save(data: BotSettings): Promise<void>;
+  find(accountId: number): Promise<{ settings: unknown } | null>;
+  saveSettings(accountId: number, settings: BotSettings): Promise<void>;
 }

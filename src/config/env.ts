@@ -22,6 +22,7 @@ export const env = {
   dbPoolMax: Number(process.env.DB_POOL_MAX ?? 5),
   pythonBin: process.env.PYTHON_BIN ?? 'python3',
   gmgnScript: process.env.GMGN_SCRIPT ?? path.join(API_DIR, 'scripts', 'gmgn_hot_searches.py'),
+  gmgnTrendingScript: process.env.GMGN_TRENDING_SCRIPT ?? path.join(API_DIR, 'scripts', 'gmgn_trending.py'),
   pumpportalApiKey: process.env.PUMPPORTAL_API_KEY ?? '',
   walletPublicKey: process.env.WALLET_PUBLIC_KEY ?? '',
   solanaRpcUrl,

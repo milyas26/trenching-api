@@ -4,9 +4,10 @@ import type { PositionsService } from '../positions/positions.service.ts';
 import type { LogsService } from '../logs/logs.service.ts';
 import type { SettingsService } from '../settings/settings.service.ts';
 import type { BotSettings } from '../settings/settings.interfaces.ts';
+import type { AccountsService } from '../accounts/accounts.service.ts';
 import { conflict } from '../../common/errors.ts';
 import { pnlPct } from './exit-rules.ts';
-import { NoTokensError, type BuyCandidate, type TradeExecutor } from './trading.interfaces.ts';
+import { NoTokensError, type BuyCandidate, type TradeContext, type TradeExecutor } from './trading.interfaces.ts';
 
 const shortMint = (mint: string) => `${mint.slice(0, 4)}…${mint.slice(-4)}`;
 
@@ -19,40 +20,47 @@ export class TradingService {
     private readonly positions: PositionsService,
     private readonly prices: PriceSource,
     private readonly settings: SettingsService,
+    private readonly accounts: AccountsService,
     private readonly logs: LogsService,
     executors: TradeExecutor[],
   ) {
     this.executors = Object.fromEntries(executors.map((e) => [e.mode, e])) as Record<TradeMode, TradeExecutor>;
   }
 
+  private async context(accountId: number, settings: BotSettings): Promise<TradeContext> {
+    return { ...settings, ...(await this.accounts.credentials(accountId)) };
+  }
+
   /** @returns false kalau saldo tidak cukup, supaya pemanggil berhenti mencoba token lain. */
-  async open(token: BuyCandidate, settings: BotSettings): Promise<boolean> {
+  async open(accountId: number, token: BuyCandidate, settings: BotSettings): Promise<boolean> {
     const { mode, buyAmountSol: amountSol } = settings;
     const label = `${token.symbol ?? shortMint(token.mint)} [${mode}]`;
+    const log = this.logs.for(accountId);
 
-    if (mode === 'paper' && (await this.positions.paperBalance(settings)) < amountSol) {
-      await this.logs.warn(`Saldo paper tidak cukup untuk buy ${label}`);
+    if (mode === 'paper' && (await this.positions.paperBalance(accountId, settings)) < amountSol) {
+      await log.warn(`Saldo paper tidak cukup untuk buy ${label}`);
       return false;
     }
+    const ctx = await this.context(accountId, settings);
     // Cek sebelum claim: kalau tidak, token ini tercatat failed dan tidak akan pernah dibeli lagi.
-    const maxBuy = await this.executors[mode].maxBuySol(settings).catch(async (e: Error) => {
-      await this.logs.error(`Cek saldo wallet gagal, buy ${label} dilewati: ${e.message}`);
+    const maxBuy = await this.executors[mode].maxBuySol(ctx).catch(async (e: Error) => {
+      await log.error(`Cek saldo wallet gagal, buy ${label} dilewati: ${e.message}`);
       return 0;
     });
     if (maxBuy !== null && maxBuy < amountSol) {
-      await this.logs.warn(`Saldo wallet tidak cukup untuk buy ${label}: maks ${maxBuy.toFixed(4)} SOL setelah fee`);
+      await log.warn(`Saldo wallet tidak cukup untuk buy ${label}: maks ${maxBuy.toFixed(4)} SOL setelah fee`);
       return false;
     }
 
-    // Klaim mint dulu (unique mode+mint) supaya token yang sama tidak pernah dibeli dua kali.
+    // Klaim mint dulu (unique akun+mode+mint) supaya token yang sama tidak pernah dibeli dua kali.
     const id = await this.repo.claim({
-      mode, mint: token.mint, symbol: token.symbol, name: token.name, logo: token.logo,
+      accountId, mode, mint: token.mint, symbol: token.symbol, name: token.name, logo: token.logo,
       amountSol, entryMc: token.mc,
     });
     if (id === null) return true;
 
     try {
-      const signature = await this.executors[mode].buy(token.mint, amountSol, settings);
+      const signature = await this.executors[mode].buy(token.mint, amountSol, ctx);
       const quote = (await this.prices.getQuotes([token.mint]).catch(() => null))?.get(token.mint);
       const entry = quote?.priceUsd ?? token.price;
       if (!entry) throw new Error('harga entry tidak tersedia');
@@ -63,11 +71,11 @@ export class TradingService {
         : token.mc && token.price ? token.mc / token.price : null;
 
       await this.repo.markOpen(id, { entryPrice: entry, supply, buySignature: signature });
-      await this.logs.buy(`BUY ${label} ${amountSol} SOL @ $${entry}${signature ? ` sig ${signature}` : ''}`);
+      await log.buy(`BUY ${label} ${amountSol} SOL @ $${entry}${signature ? ` sig ${signature}` : ''}`);
     } catch (e) {
       const message = (e as Error).message;
       await this.repo.markFailed(id, message);
-      await this.logs.error(`BUY ${label} gagal: ${message}`);
+      await log.error(`BUY ${label} gagal: ${message}`);
     }
     return true;
   }
@@ -76,31 +84,32 @@ export class TradingService {
     const pos = await this.repo.claimForClose(id);
     if (!pos) throw conflict('Posisi tidak sedang open');
     const label = `${pos.symbol ?? shortMint(pos.mint)} [${pos.mode}]`;
+    const log = this.logs.for(pos.accountId);
 
     try {
-      const settings = await this.settings.get();
+      const settings = await this.settings.get(pos.accountId);
       const price = priceHint ?? (await this.prices.getPrice(pos.mint)) ?? pos.currentPrice;
       if (!price || !pos.entryPrice) throw new Error('harga exit tidak tersedia');
 
-      const sellSignature = await this.executors[pos.mode].sellAll(pos.mint, settings);
+      const sellSignature = await this.executors[pos.mode].sellAll(pos.mint, await this.context(pos.accountId, settings));
       const pct = pnlPct(pos.entryPrice, price);
       const pnlSol = pos.amountSol * (pct / 100);
 
       await this.repo.markClosed(id, { exitPrice: price, exitReason: reason, pnlPct: pct, pnlSol, sellSignature });
-      await this.logs.sell(
+      await log.sell(
         `SELL ${label} (${reason}) @ $${price} | PnL ${pct.toFixed(2)}% (${pnlSol.toFixed(4)} SOL)`
           + (sellSignature ? ` sig ${sellSignature}` : ''),
       );
     } catch (e) {
       if (e instanceof NoTokensError) {
         await this.repo.markFailed(id, e.message);
-        await this.logs.warn(`SELL ${label} dibatalkan: ${e.message}, posisi ditandai failed`);
+        await log.warn(`SELL ${label} dibatalkan: ${e.message}, posisi ditandai failed`);
         return;
       }
       // Balik ke open supaya dicoba lagi di cek harga berikutnya.
       const message = (e as Error).message;
       await this.repo.revertToOpen(id, message);
-      await this.logs.error(`SELL ${label} gagal: ${message}`);
+      await log.error(`SELL ${label} gagal: ${message}`);
       throw e;
     }
   }

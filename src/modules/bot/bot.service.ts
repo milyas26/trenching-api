@@ -1,12 +1,13 @@
 import { setTimeout as sleep } from 'node:timers/promises';
-import { env } from '../../config/env.ts';
-import type { PumpportalClient } from '../../integrations/pumpportal/pumpportal.client.ts';
 import type { SolanaClient } from '../../integrations/solana/solana.client.ts';
+import { TOKEN_SOURCE_LABEL } from '../../integrations/gmgn/gmgn.types.ts';
 import type { IPositionsRepository } from '../positions/positions.interfaces.ts';
 import type { PositionsService } from '../positions/positions.service.ts';
 import type { SettingsService } from '../settings/settings.service.ts';
+import type { AccountsService } from '../accounts/accounts.service.ts';
 import type { LogsService } from '../logs/logs.service.ts';
-import type { BotRuntimeState, BotStatus, CandidatesResponse } from './bot.interfaces.ts';
+import type { BotStatus, CandidatesResponse } from './bot.interfaces.ts';
+import type { BotState } from './bot.state.ts';
 import type { BotScheduler } from './bot.scheduler.ts';
 import type { ScannerService } from './scanner.service.ts';
 
@@ -15,68 +16,82 @@ const BALANCE_TTL_MS = 15_000;
 /** Batas tunggu fetch GMGN saat scan manual (timeout script GMGN 45 detik). */
 const SCAN_FETCH_WAIT_MS = 50_000;
 
+interface CachedBalance { sol: number | null; error: string | null; at: number }
+
 export class BotService {
-  private balance = { sol: null as number | null, error: null as string | null, at: 0 };
+  /** Per alamat wallet, karena beberapa akun bisa memakai wallet .env yang sama. */
+  private readonly balances = new Map<string, CachedBalance>();
 
   constructor(
-    private readonly state: BotRuntimeState,
+    private readonly state: BotState,
     private readonly settings: SettingsService,
+    private readonly accounts: AccountsService,
     private readonly positions: PositionsService,
     private readonly positionsRepo: IPositionsRepository,
     private readonly scheduler: BotScheduler,
     private readonly scanner: ScannerService,
-    private readonly pumpportal: PumpportalClient,
     private readonly solana: SolanaClient,
     private readonly logs: LogsService,
   ) {}
 
-  async status(): Promise<BotStatus> {
-    const settings = await this.settings.get();
-    const s = this.state;
-    const balance = settings.mode === 'real' ? await this.walletBalance() : null;
+  async status(accountId: number): Promise<BotStatus> {
+    const settings = await this.settings.get(accountId);
+    const creds = await this.accounts.credentials(accountId);
+    const s = this.state.scan(accountId);
+    const balance = settings.mode === 'real' ? await this.walletBalance(creds.wallet) : null;
     return {
+      accountId,
       botEnabled: settings.botEnabled,
       mode: settings.mode,
-      wallet: env.walletPublicKey,
-      pumpportalReady: this.pumpportal.isConfigured,
+      source: settings.source,
+      wallet: creds.wallet,
+      pumpportalReady: creds.apiKey.length > 0,
       walletBalanceSol: balance?.sol ?? null,
       walletBalanceError: balance?.error ?? null,
       scanning: s.scanning,
       lastScanAt: s.lastScanAt,
       lastScanError: s.lastScanError,
+      lastScanFetchedCount: s.lastScanFetched.length,
       lastScanCount: s.lastScanTokens.length,
       nextScanAt: s.nextScanAt,
-      lastPriceAt: s.lastPriceAt,
-      lastPriceError: s.lastPriceError,
-      stats: await this.positions.stats(settings),
+      lastPriceAt: this.state.price.lastPriceAt,
+      lastPriceError: this.state.price.lastPriceError,
+      stats: await this.positions.stats(accountId, settings),
     };
   }
 
   /** Kalau RPC gagal, saldo terakhir tetap dikirim bersama pesan error-nya. */
-  private async walletBalance() {
-    if (!env.walletPublicKey) return { sol: null, error: 'WALLET_PUBLIC_KEY kosong di api/.env' };
-    if (Date.now() - this.balance.at >= BALANCE_TTL_MS) {
-      this.balance.at = Date.now();
+  private async walletBalance(wallet: string) {
+    if (!wallet) return { sol: null, error: 'Wallet belum diisi untuk akun ini' };
+    let balance = this.balances.get(wallet);
+    if (!balance) {
+      balance = { sol: null, error: null, at: 0 };
+      this.balances.set(wallet, balance);
+    }
+    if (Date.now() - balance.at >= BALANCE_TTL_MS) {
+      balance.at = Date.now();
       try {
-        this.balance.sol = await this.solana.getBalanceSol(env.walletPublicKey);
-        this.balance.error = null;
+        balance.sol = await this.solana.getBalanceSol(wallet);
+        balance.error = null;
       } catch (e) {
-        this.balance.error = (e as Error).message;
+        balance.error = (e as Error).message;
       }
     }
-    return this.balance;
+    return balance;
   }
 
-  async start() {
-    const settings = await this.settings.update({ botEnabled: true });
-    await this.logs.info(`Bot START (${settings.mode})`);
-    this.scheduler.restartScan();
+  async start(accountId: number) {
+    const current = await this.settings.get(accountId);
+    if (current.mode === 'real') await this.accounts.assertWalletFree(accountId);
+    const settings = await this.settings.update(accountId, { botEnabled: true });
+    await this.logs.for(accountId).info(`Bot START (${settings.mode}, ${TOKEN_SOURCE_LABEL[settings.source]})`);
+    this.scheduler.restartScan(accountId);
   }
 
-  async stop() {
-    await this.settings.update({ botEnabled: false });
-    this.state.nextScanAt = null;
-    await this.logs.info('Bot STOP');
+  async stop(accountId: number) {
+    await this.settings.update(accountId, { botEnabled: false });
+    this.state.scan(accountId).nextScanAt = null;
+    await this.logs.for(accountId).info('Bot STOP');
   }
 
   /**
@@ -84,40 +99,49 @@ export class BotService {
    * supaya review AI berjalan di belakang dan hitung mundur berikutnya mulai setelah review selesai.
    * Request cukup menunggu daftar token GMGN diperbarui.
    */
-  async scanNow() {
-    const { botEnabled } = await this.settings.get();
+  async scanNow(accountId: number) {
+    const { botEnabled } = await this.settings.get(accountId);
+    const state = this.state.scan(accountId);
     if (!botEnabled) {
-      await this.scanner.run({ buy: false });
-      return { error: this.state.lastScanError };
+      await this.scanner.run(accountId, { buy: false });
+      return { error: state.lastScanError };
     }
 
-    const before = this.state.lastScanAt;
-    const wasScanning = this.state.scanning;
-    this.scheduler.restartScan();
+    const before = state.lastScanAt;
+    const wasScanning = state.scanning;
+    this.scheduler.restartScan(accountId);
     // Scan yang sudah berjalan sebelumnya berarti daftar token sudah segar; tidak perlu ditunggu.
     const deadline = Date.now() + SCAN_FETCH_WAIT_MS;
     let started = false;
-    while (!wasScanning && this.state.lastScanAt === before && Date.now() < deadline) {
+    while (!wasScanning && state.lastScanAt === before && Date.now() < deadline) {
       // Scan selesai tanpa lastScanAt berubah berarti fetch GMGN gagal; error-nya ada di lastScanError.
-      if (started && !this.state.scanning) break;
-      started ||= this.state.scanning;
+      if (started && !state.scanning) break;
+      started ||= state.scanning;
       await sleep(250);
     }
-    return { error: this.state.lastScanError };
+    return { error: state.lastScanError };
   }
 
-  /** Flag `bought` dihitung saat request supaya selalu sesuai isi tabel positions. */
-  async candidates(): Promise<CandidatesResponse> {
-    const bought = await this.positionsRepo.boughtMints();
-    return {
-      at: this.state.lastScanAt,
-      tokens: this.state.lastScanTokens.map(({ raw: _raw, ...t }) => ({ ...t, bought: bought.has(t.mint) })),
-    };
+  /**
+   * Semua token dari GMGN, yang lolos filter Token Info lebih dulu.
+   * Flag `bought` dihitung saat request supaya selalu sesuai isi tabel positions.
+   */
+  async candidates(accountId: number): Promise<CandidatesResponse> {
+    await this.settings.get(accountId);
+    const s = this.state.scan(accountId);
+    const bought = await this.positionsRepo.boughtMints(accountId);
+    const tokens = s.lastScanFetched.map(({ raw: _raw, safety: _safety, signals: _signals, ...t }) => ({
+      ...t,
+      bought: bought.has(t.mint),
+      rejectedBy: s.lastScanRejected.get(t.mint) ?? [],
+    }));
+    tokens.sort((a, b) => Number(a.rejectedBy.length > 0) - Number(b.rejectedBy.length > 0));
+    return { at: s.lastScanAt, source: s.lastScanSource, tokens };
   }
 
   async recover() {
     for (const p of await this.positionsRepo.recoverStuck()) {
-      await this.logs.warn(`Recover posisi #${p.id} (${p.mint.slice(0, 4)}…${p.mint.slice(-4)}) -> ${p.status}`);
+      await this.logs.for(p.accountId).warn(`Recover posisi #${p.id} (${p.mint.slice(0, 4)}…${p.mint.slice(-4)}) -> ${p.status}`);
     }
   }
 }

@@ -1,19 +1,15 @@
-import { env } from '../../config/env.ts';
 import type { TradeOptions, TradeRequest, TradeResponse } from './pumpportal.types.ts';
 
 /**
  * Lightning Transaction API (https://pumpportal.fun/trading-api/).
  * Transaksi ditandatangani dan dikirim PumpPortal pakai wallet yang terhubung ke API key.
+ * API key dikirim per panggilan karena tiap akun bisa punya wallet sendiri.
  */
 const TRADE_URL = 'https://pumpportal.fun/api/trade';
 
 export class PumpportalClient {
-  get isConfigured() {
-    return env.pumpportalApiKey.length > 0;
-  }
-
-  buy(mint: string, amountSol: number, opts: TradeOptions): Promise<string> {
-    return this.trade({
+  buy(apiKey: string, mint: string, amountSol: number, opts: TradeOptions): Promise<string> {
+    return this.trade(apiKey, {
       action: 'buy',
       mint,
       amount: amountSol,
@@ -24,8 +20,8 @@ export class PumpportalClient {
     });
   }
 
-  sellAll(mint: string, opts: TradeOptions): Promise<string> {
-    return this.trade({
+  sellAll(apiKey: string, mint: string, opts: TradeOptions): Promise<string> {
+    return this.trade(apiKey, {
       action: 'sell',
       mint,
       amount: '100%',
@@ -36,10 +32,10 @@ export class PumpportalClient {
     });
   }
 
-  private async trade(body: TradeRequest): Promise<string> {
-    if (!this.isConfigured) throw new Error('PUMPPORTAL_API_KEY belum diset di .env');
+  private async trade(apiKey: string, body: TradeRequest): Promise<string> {
+    if (!apiKey) throw new Error('API key PumpPortal belum diisi untuk akun ini (Pengaturan > Akun, atau PUMPPORTAL_API_KEY di api/.env)');
 
-    const res = await fetch(`${TRADE_URL}?api-key=${encodeURIComponent(env.pumpportalApiKey)}`, {
+    const res = await fetch(`${TRADE_URL}?api-key=${encodeURIComponent(apiKey)}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),

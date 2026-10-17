@@ -8,7 +8,7 @@ import type { TradingService } from '../trading/trading.service.ts';
 import type { PricesService } from '../prices/prices.service.ts';
 import { toPositionDto } from '../positions/positions.mapper.ts';
 import { evaluateExit, pnlPct } from '../trading/exit-rules.ts';
-import type { BotRuntimeState } from './bot.interfaces.ts';
+import type { BotState } from './bot.state.ts';
 
 /** Harga dari stream bisa datang beberapa kali per detik; DB cukup ditulis sekali per detik per posisi. */
 const STREAM_WRITE_MS = 1_000;
@@ -17,7 +17,7 @@ const SELL_RETRY_BASE_MS = 5_000;
 const SELL_RETRY_MAX_MS = 120_000;
 
 /**
- * Update harga semua posisi open dan close yang kena aturan exit.
+ * Update harga semua posisi open (semua akun) dan close yang kena aturan exit akun pemiliknya.
  * - run(): polling berkala (heartbeat), sekaligus menyamakan daftar mint yang di-stream.
  * - handleQuote(): push dari OnchainPriceStream, exit dievaluasi begitu akun on-chain berubah.
  */
@@ -30,7 +30,7 @@ export class MonitorService {
   private readonly sellRetry = new Map<number, { failures: number; at: number }>();
 
   constructor(
-    private readonly state: BotRuntimeState,
+    private readonly state: BotState,
     private readonly prices: PriceSource,
     private readonly stream: OnchainPriceStream,
     private readonly positions: IPositionsRepository,
@@ -50,18 +50,17 @@ export class MonitorService {
       void this.stream.watch(open.map((p) => p.mint)).catch(() => {});
       if (open.length === 0) return;
 
-      const settings = await this.settings.get();
       const quotes = await this.prices.getQuotes(open.map((p) => p.mint));
-      this.state.lastPriceAt = new Date();
-      this.state.lastPriceError = null;
+      this.state.price.lastPriceAt = new Date();
+      this.state.price.lastPriceError = null;
 
       for (const pos of this.open.values()) {
         const price = quotes.get(pos.mint)?.priceUsd;
-        if (price) await this.apply(pos, price, settings, false);
+        if (price) await this.apply(pos, price, await this.settings.get(pos.accountId), false);
       }
     } catch (e) {
-      this.state.lastPriceError = (e as Error).message;
-      await this.logs.error(`Cek harga gagal: ${this.state.lastPriceError}`);
+      this.state.price.lastPriceError = (e as Error).message;
+      await this.logs.system.error(`Cek harga gagal: ${this.state.price.lastPriceError}`);
     } finally {
       this.busy = false;
     }
@@ -71,11 +70,10 @@ export class MonitorService {
     const targets = [...this.open.values()].filter((p) => p.mint === mint);
     if (targets.length === 0) return;
     try {
-      const settings = await this.settings.get();
-      this.state.lastPriceAt = new Date();
-      for (const pos of targets) await this.apply(pos, quote.priceUsd, settings, true);
+      this.state.price.lastPriceAt = new Date();
+      for (const pos of targets) await this.apply(pos, quote.priceUsd, await this.settings.get(pos.accountId), true);
     } catch (e) {
-      this.state.lastPriceError = (e as Error).message;
+      this.state.price.lastPriceError = (e as Error).message;
     }
   }
 

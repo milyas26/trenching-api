@@ -5,9 +5,9 @@ import { buildApp } from './app.ts';
 const container = createContainer();
 const app = await buildApp(container);
 
-await container.settings.get();
+await container.accounts.ensureDefault();
 await container.bot.recover();
-container.scheduler.start();
+await container.scheduler.start();
 
 await app.listen({ port: env.port, host: env.host });
 console.log(`micin-agent API jalan di http://localhost:${env.port}`);

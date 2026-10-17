@@ -9,9 +9,10 @@ import {
 export class PositionsRepository implements IPositionsRepository {
   constructor(private readonly db: PrismaClient) {}
 
-  list({ view, mode }: ListPositionsQuery, limit: number) {
+  list({ accountId, view, mode }: ListPositionsQuery, limit: number) {
     return this.db.position.findMany({
       where: {
+        accountId,
         mode,
         status: view === 'open' ? { in: ACTIVE_STATUSES } : view === 'closed' ? { in: FINISHED_STATUSES } : undefined,
       },
@@ -20,14 +21,13 @@ export class PositionsRepository implements IPositionsRepository {
     });
   }
 
-  /** Semua mint yang pernah dicoba buy, paper maupun real, termasuk yang gagal. */
-  async boughtMints() {
-    const rows = await this.db.position.findMany({ distinct: ['mint'], select: { mint: true } });
+  async boughtMints(accountId: number) {
+    const rows = await this.db.position.findMany({ where: { accountId }, distinct: ['mint'], select: { mint: true } });
     return new Set(rows.map((r) => r.mint));
   }
 
-  countActive(mode: TradeMode) {
-    return this.db.position.count({ where: { mode, status: { in: ACTIVE_STATUSES } } });
+  countActive(accountId: number, mode?: TradeMode) {
+    return this.db.position.count({ where: { accountId, mode, status: { in: ACTIVE_STATUSES } } });
   }
 
   findOpen() {
@@ -90,7 +90,7 @@ export class PositionsRepository implements IPositionsRepository {
     return this.db.$transaction(async (tx) => {
       const stuck = await tx.position.findMany({
         where: { status: { in: ['opening', 'closing'] } },
-        select: { id: true, mint: true, status: true },
+        select: { id: true, accountId: true, mint: true, status: true },
       });
       const reason = 'server restart saat transaksi berjalan';
       await tx.position.updateMany({
@@ -102,19 +102,20 @@ export class PositionsRepository implements IPositionsRepository {
     });
   }
 
-  async allModeStats(): Promise<Record<TradeMode, ModeStats>> {
+  async allModeStats(accountId: number): Promise<Record<TradeMode, ModeStats>> {
     const [byStatus, wins, open] = await Promise.all([
       this.db.position.groupBy({
         by: ['mode', 'status'],
+        where: { accountId },
         _count: { _all: true },
         _sum: { amountSol: true, pnlSol: true },
       }),
       this.db.position.groupBy({
         by: ['mode'],
-        where: { status: 'closed', pnlSol: { gt: 0 } },
+        where: { accountId, status: 'closed', pnlSol: { gt: 0 } },
         _count: { _all: true },
       }),
-      this.db.position.findMany({ where: { status: 'open' }, select: { mode: true, amountSol: true, pnlPct: true } }),
+      this.db.position.findMany({ where: { accountId, status: 'open' }, select: { mode: true, amountSol: true, pnlPct: true } }),
     ]);
 
     const empty = (): ModeStats => ({ open: 0, closed: 0, wins: 0, failed: 0, realizedSol: 0, unrealizedSol: 0, lockedSol: 0 });
