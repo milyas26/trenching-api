@@ -43,6 +43,8 @@ export interface RawHotToken {
   d_ts?: string;
   /** rug ratio versi GMGN, 0-1 */
   rug?: number;
+  /** Tag OG di GMGN: token paling awal dengan nama yang sama. */
+  isog?: boolean;
   snp?: number;
   smt?: number;
   kol?: number;
@@ -139,6 +141,8 @@ export interface TokenInfo {
   botDegenPct: number | null;
   /** Perkiraan GMGN peluang token di-rug ("Rug %" di halaman token). */
   rugPct: number | null;
+  /** Tag OG GMGN: token paling awal dengan nama yang sama. */
+  isOg: boolean | null;
 }
 
 /** Hasil satu panggilan hot_searches: response apa adanya (tanpa list token) dan token yang sudah dipetakan. */

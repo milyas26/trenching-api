@@ -7,6 +7,7 @@ import type { BotSettings } from '../settings/settings.interfaces.ts';
 import type { AccountsService } from '../accounts/accounts.service.ts';
 import { conflict } from '../../common/errors.ts';
 import { pnlPct } from './exit-rules.ts';
+import { ogTakeProfit } from './og-rule.ts';
 import { NoTokensError, type BuyCandidate, type TradeContext, type TradeExecutor } from './trading.interfaces.ts';
 
 const shortMint = (mint: string) => `${mint.slice(0, 4)}…${mint.slice(-4)}`;
@@ -52,10 +53,12 @@ export class TradingService {
       return false;
     }
 
+    // Disimpan di posisi supaya TP-nya tetap walau pengaturan OG diubah setelah beli.
+    const ogTp = ogTakeProfit(token.info, token.mc, settings);
     // Klaim mint dulu (unique akun+mode+mint) supaya token yang sama tidak pernah dibeli dua kali.
     const id = await this.repo.claim({
       accountId, mode, mint: token.mint, symbol: token.symbol, name: token.name, logo: token.logo,
-      amountSol, entryMc: token.mc, tokenInfo: token.info,
+      amountSol, entryMc: token.mc, tokenInfo: token.info, takeProfitPct: ogTp,
     });
     if (id === null) return true;
 
@@ -71,7 +74,9 @@ export class TradingService {
         : token.mc && token.price ? token.mc / token.price : null;
 
       await this.repo.markOpen(id, { entryPrice: entry, supply, buySignature: signature });
-      await log.buy(`BUY ${label} ${amountSol} SOL @ $${entry}${signature ? ` sig ${signature}` : ''}`);
+      await log.buy(
+        `BUY ${label} ${amountSol} SOL @ $${entry}${ogTp === null ? '' : ` | token OG, TP ${ogTp}%`}${signature ? ` sig ${signature}` : ''}`,
+      );
     } catch (e) {
       const message = (e as Error).message;
       await this.repo.markFailed(id, message);

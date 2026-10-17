@@ -25,6 +25,8 @@ export interface NewPosition {
   amountSol: number;
   entryMc: number | null;
   tokenInfo: TokenInfo | null;
+  /** Take profit khusus posisi ini (aturan token OG); null = pakai take profit akun. */
+  takeProfitPct: number | null;
 }
 
 export interface OpenedPositionData {

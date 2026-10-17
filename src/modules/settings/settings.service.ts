@@ -27,6 +27,7 @@ export class SettingsService {
       ...patch,
       filter: { ...current.filter, ...patch.filter },
       tokenFilter: { ...current.tokenFilter, ...patch.tokenFilter },
+      ogRule: { ...current.ogRule, ...patch.ogRule },
     }) as BotSettings;
     await this.repo.saveSettings(accountId, next);
     this.cache.set(accountId, next);

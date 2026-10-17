@@ -9,6 +9,7 @@ import type { BotSettings } from '../settings/settings.interfaces.ts';
 import { TOKEN_SOURCE_LABEL, type HotToken } from '../../integrations/gmgn/gmgn.types.ts';
 import type { BotState } from './bot.state.ts';
 import { applyTokenFilter } from './token-filter.ts';
+import { settingsForToken } from '../trading/og-rule.ts';
 
 /** Review AI per scan dibatasi supaya satu scan tidak berjalan terlalu lama (tiap review bisa ~1 menit). */
 const MAX_REVIEWS_PER_SCAN = 5;
@@ -107,7 +108,8 @@ export class ScannerService {
       const label = token.symbol ?? shortMint(token.mint);
       let settings: BotSettings = await this.settings.get(accountId);
       try {
-        const d = await this.agent.review(accountId, token, settings);
+        // AI menilai peluang mencapai TP yang benar-benar dipakai (TP khusus kalau token OG).
+        const d = await this.agent.review(accountId, token, settingsForToken(token, settings));
         await this.snapshots.reviewed(accountId, token, settings.mode, d);
         await log.info(`AI ${d.decision.toUpperCase()} ${label} (${d.confidence}%, ${d.steps} langkah): ${d.reason}`);
         if (d.decision !== 'buy') continue;

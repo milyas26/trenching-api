@@ -74,6 +74,8 @@ model Position {
   supply        Float?
   /// Kolom Token Info GMGN (TokenInfo) saat token dibeli.
   tokenInfo     Json?          @map("token_info")
+  /// Take profit khusus posisi ini (aturan token OG); null = pakai take profit akun.
+  takeProfitPct Float?         @map("take_profit_pct")
   currentPrice  Float?         @map("current_price")
   highPrice     Float?         @map("high_price")
   pnlPct        Float?         @map("pnl_pct")

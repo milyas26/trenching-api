@@ -28,6 +28,7 @@ export function tokenFilterRejections(info: TokenInfo, filter: TokenFilter): str
   }
   if (filter.devSoldOnly && info.devSold !== true) reasons.push('Dev belum jual');
   if (filter.dexPaidOnly && info.dexPaid !== true) reasons.push('Dex belum paid');
+  if (filter.ogOnly && info.isOg !== true) reasons.push('Bukan OG');
   return reasons;
 }
 

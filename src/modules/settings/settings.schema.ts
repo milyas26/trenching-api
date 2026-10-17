@@ -32,6 +32,17 @@ export const tokenFilterSchema = z.object({
   maxBotDegenPct: nullablePct.default(null),
   /** "Rug %" GMGN: perkiraan peluang token di-rug. */
   maxRugPct: nullablePct.default(null),
+  /** Hanya token bertag OG di GMGN. */
+  ogOnly: z.boolean().default(false),
+});
+
+/**
+ * Take profit khusus token OG yang dibeli di market cap <= maxMc (ribu USD, null = berapa pun).
+ * takeProfitPct null = aturan mati, token OG memakai take profit biasa.
+ */
+export const ogRuleSchema = z.object({
+  maxMc: nullableNumber.default(null),
+  takeProfitPct: z.coerce.number().positive().nullable().default(null),
 });
 
 export const botSettingsSchema = z.object({
@@ -66,6 +77,7 @@ export const botSettingsSchema = z.object({
   source: z.enum(TOKEN_SOURCES).default('hot_searches'),
   filter: hotSearchFilterSchema.default(hotSearchFilterSchema.parse({})),
   tokenFilter: tokenFilterSchema.default(tokenFilterSchema.parse({})),
+  ogRule: ogRuleSchema.default(ogRuleSchema.parse({})),
 });
 
 /**
@@ -80,9 +92,10 @@ function withoutDefaults<S extends z.ZodRawShape>(schema: z.ZodObject<S>) {
 }
 
 /** Payload PUT /settings: semua field opsional, botEnabled diatur lewat /bot/start|stop. */
-export const settingsPatchSchema = withoutDefaults(botSettingsSchema.omit({ botEnabled: true, filter: true, tokenFilter: true }))
+export const settingsPatchSchema = withoutDefaults(botSettingsSchema.omit({ botEnabled: true, filter: true, tokenFilter: true, ogRule: true }))
   .extend({
     filter: withoutDefaults(hotSearchFilterSchema).optional(),
     tokenFilter: withoutDefaults(tokenFilterSchema).optional(),
+    ogRule: withoutDefaults(ogRuleSchema).optional(),
   })
   .strict();

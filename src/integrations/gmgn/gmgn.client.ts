@@ -99,6 +99,7 @@ function toHotToken(t: RawHotToken): HotToken {
       botDegenCount: t.bdc ?? null,
       botDegenPct: pct(t.bdr),
       rugPct: pct(t.rug),
+      isOg: t.isog ?? null,
     },
     raw: t as unknown as Record<string, unknown>,
   };

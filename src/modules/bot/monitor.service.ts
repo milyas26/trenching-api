@@ -137,7 +137,9 @@ export class MonitorService {
       id: pos.id, mint: pos.mint, currentPrice: price, highPrice, pnlPct: pnl,
       currentMc: dto.currentMc, highMc: dto.highMc, at: Date.now(),
     });
-    const reason = evaluateExit({ entryPrice: pos.entryPrice, highPrice, openedAt: pos.openedAt, price }, settings);
+    // Posisi token OG bisa punya take profit sendiri (disimpan saat beli).
+    const rules = { ...settings, takeProfitPct: pos.takeProfitPct ?? settings.takeProfitPct };
+    const reason = evaluateExit({ entryPrice: pos.entryPrice, highPrice, openedAt: pos.openedAt, price }, rules);
 
     const now = Date.now();
     if (reason || !throttled || now - (this.lastWrite.get(pos.id) ?? 0) >= STREAM_WRITE_MS) {
