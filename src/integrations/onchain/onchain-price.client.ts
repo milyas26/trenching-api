@@ -3,7 +3,7 @@ import { isPubkey } from '../solana/pubkey.ts';
 import type { DexscreenerClient } from '../dexscreener/dexscreener.client.ts';
 import type { PriceSource, TokenQuote } from '../dexscreener/dexscreener.types.ts';
 import {
-  PYTH_SOL_USD, WSOL_MINT,
+  MAX_SANE_MC_USD, PYTH_SOL_USD, WSOL_MINT,
   bondingCurveAddress, pumpSwapPoolAddress,
   decodeBondingCurve, decodeMint, decodePumpSwapPool, decodePumpSwapVirtualQuote, decodePythPrice,
   decodeTokenAmount, spotPriceSol,
@@ -92,7 +92,8 @@ export class OnchainPriceClient implements PriceSource {
           if (!curve.complete) {
             const { decimals, supply } = decodeMint(mintAcc.data);
             const priceSol = spotPriceSol(curve.virtualSolReserves, curve.virtualTokenReserves, decimals);
-            if (priceSol !== null) result.set(mint, quote(priceSol * solUsd, supply, decimals, 'pump'));
+            const q = priceSol === null ? null : quote(priceSol * solUsd, supply, decimals, 'pump');
+            if (q) result.set(mint, q);
             continue;
           }
         }
@@ -120,7 +121,8 @@ export class OnchainPriceClient implements PriceSource {
         const { decimals, supply } = decodeMint(mintAcc.data);
         const solReserve = decodeTokenAmount(quoteAcc.data) + decodePumpSwapVirtualQuote(poolAcc.data);
         const priceSol = spotPriceSol(solReserve, decodeTokenAmount(base.data), decimals);
-        if (priceSol !== null) result.set(mint, quote(priceSol * solUsd, supply, decimals, 'pumpswap'));
+        const q = priceSol === null ? null : quote(priceSol * solUsd, supply, decimals, 'pumpswap');
+        if (q) result.set(mint, q);
       }
     }
   }
@@ -142,6 +144,8 @@ export class OnchainPriceClient implements PriceSource {
   }
 }
 
-function quote(priceUsd: number, supply: bigint, decimals: number, source: TokenQuote['source']): TokenQuote {
-  return { priceUsd, marketCap: priceUsd * (Number(supply) / 10 ** decimals), source };
+/** null kalau market cap-nya mustahil (lihat MAX_SANE_MC_USD); token itu lalu diambil dari Dexscreener. */
+function quote(priceUsd: number, supply: bigint, decimals: number, source: TokenQuote['source']): TokenQuote | null {
+  const marketCap = priceUsd * (Number(supply) / 10 ** decimals);
+  return Number.isFinite(marketCap) && marketCap <= MAX_SANE_MC_USD ? { priceUsd, marketCap, source } : null;
 }

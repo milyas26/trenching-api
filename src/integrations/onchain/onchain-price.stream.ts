@@ -3,7 +3,7 @@ import type { SolanaWsClient } from '../solana/solana-ws.client.ts';
 import { isPubkey } from '../solana/pubkey.ts';
 import type { TokenQuote } from '../dexscreener/dexscreener.types.ts';
 import {
-  PYTH_SOL_USD, WSOL_MINT,
+  MAX_SANE_MC_USD, PYTH_SOL_USD, WSOL_MINT,
   bondingCurveAddress, pumpSwapPoolAddress,
   decodeBondingCurve, decodeMint, decodePumpSwapPool, decodePumpSwapVirtualQuote, decodePythPrice,
   decodeTokenAmount, spotPriceSol,
@@ -226,7 +226,10 @@ export class OnchainPriceStream {
   private emit(mint: string, w: Watched, priceSol: number | null, source: TokenQuote['source']) {
     if (priceSol === null || this.solUsd === null || this.watched.get(mint) !== w) return;
     const priceUsd = priceSol * this.solUsd;
-    const quote: TokenQuote = { priceUsd, marketCap: priceUsd * (Number(w.supply) / 10 ** w.decimals), source };
+    const marketCap = priceUsd * (Number(w.supply) / 10 ** w.decimals);
+    // Hasil baca akun yang salah; polling (dengan fallback Dexscreener) tetap jalan sebagai heartbeat.
+    if (!Number.isFinite(marketCap) || marketCap > MAX_SANE_MC_USD) return;
+    const quote: TokenQuote = { priceUsd, marketCap, source };
     for (const listener of this.listeners) listener(mint, quote);
   }
 }

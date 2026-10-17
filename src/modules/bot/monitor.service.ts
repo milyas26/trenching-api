@@ -15,6 +15,13 @@ const STREAM_WRITE_MS = 1_000;
 /** Sell yang gagal dicoba lagi dengan jeda 5 dtk, 10, 20, ... maks 2 menit, bukan di setiap tick harga. */
 const SELL_RETRY_BASE_MS = 5_000;
 const SELL_RETRY_MAX_MS = 120_000;
+/**
+ * Harga yang melompat lebih dari X kali (naik atau turun) dari harga terakhir dalam satu tick dianggap
+ * meragukan: belum dipakai untuk TP/SL sampai tick berikutnya mengonfirmasi (selisih < 2x).
+ * Rug asli tetap kena SL, hanya tertunda satu tick.
+ */
+const MAX_TICK_JUMP = 20;
+const CONFIRM_RATIO = 2;
 
 /**
  * Update harga semua posisi open (semua akun) dan close yang kena aturan exit akun pemiliknya.
@@ -28,6 +35,8 @@ export class MonitorService {
   private readonly closing = new Set<number>();
   private readonly lastWrite = new Map<number, number>();
   private readonly sellRetry = new Map<number, { failures: number; at: number }>();
+  /** Harga meragukan terakhir per posisi, menunggu konfirmasi tick berikutnya. */
+  private readonly suspect = new Map<number, number>();
 
   constructor(
     private readonly state: BotState,
@@ -77,6 +86,28 @@ export class MonitorService {
     }
   }
 
+  /** false = harga melompat ekstrem dan belum dikonfirmasi tick berikutnya; tick ini diabaikan. */
+  private async confirmed(pos: Position, price: number): Promise<boolean> {
+    const last = pos.currentPrice ?? pos.entryPrice!;
+    const jump = Math.max(price / last, last / price);
+    if (!Number.isFinite(jump) || jump <= MAX_TICK_JUMP) {
+      this.suspect.delete(pos.id);
+      return true;
+    }
+    const pending = this.suspect.get(pos.id);
+    if (pending !== undefined && Math.max(price / pending, pending / price) < CONFIRM_RATIO) {
+      this.suspect.delete(pos.id);
+      return true;
+    }
+    if (pending === undefined) {
+      await this.logs.for(pos.accountId).warn(
+        `Harga ${pos.symbol ?? pos.mint.slice(0, 4)} melompat ${jump.toFixed(0)}x ($${last} -> $${price}), diabaikan sampai dikonfirmasi tick berikutnya`,
+      );
+    }
+    this.suspect.set(pos.id, price);
+    return false;
+  }
+
   /** highPrice di memori bisa lebih baru dari DB karena tulisan stream di-throttle. */
   private syncOpen(rows: Position[]) {
     const next = new Map<number, Position>();
@@ -87,12 +118,14 @@ export class MonitorService {
     }
     for (const id of this.lastWrite.keys()) if (!next.has(id)) this.lastWrite.delete(id);
     for (const id of this.sellRetry.keys()) if (!next.has(id)) this.sellRetry.delete(id);
+    for (const id of this.suspect.keys()) if (!next.has(id)) this.suspect.delete(id);
     this.open = next;
     this.live.retain(new Set(next.keys()));
   }
 
   private async apply(pos: Position, price: number, settings: BotSettings, throttled: boolean) {
     if (!pos.entryPrice || this.closing.has(pos.id) || this.open.get(pos.id) !== pos) return;
+    if (!(await this.confirmed(pos, price))) return;
 
     const highPrice = Math.max(pos.highPrice ?? 0, price);
     const pnl = pnlPct(pos.entryPrice, price);

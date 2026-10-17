@@ -56,13 +56,21 @@ export function decodePumpSwapPool(data: Buffer) {
 }
 
 /**
- * Virtual quote reserve u64 @245 (setelah coin_creator @211 dan dua flag bool).
+ * Virtual quote reserve i64 @245 (setelah coin_creator @211 dan dua flag bool).
  * Swap PumpSwap memakai (saldo vault quote + nilai ini) sebagai reserve SOL; tanpa ini harga
  * spot meleset puluhan persen di pool kecil. Offset diverifikasi dari event Buy/Sell on-chain.
+ * Signed: nilainya bisa negatif. Dibaca sebagai u64, -5,9 SOL jadi ~1,8e19 lamport dan harga
+ * meledak jutaan kali lipat (kasus rebond 7Tr69P...pump, MC terbaca $14.735 miliar).
  */
 export function decodePumpSwapVirtualQuote(data: Buffer): bigint {
-  return data.length >= 253 ? data.readBigUInt64LE(245) : 0n;
+  return data.length >= 253 ? data.readBigInt64LE(245) : 0n;
 }
+
+/**
+ * Batas atas market cap yang masih mungkin untuk token pump.fun. Quote di atas ini pasti hasil
+ * baca akun yang salah, jadi dibuang (polling lalu jatuh ke Dexscreener).
+ */
+export const MAX_SANE_MC_USD = 10_000_000_000;
 
 /**
  * PriceUpdateV2 Pyth: discriminator 8, write_authority 32, verification_level
