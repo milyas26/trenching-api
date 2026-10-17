@@ -137,6 +137,8 @@ export interface TokenInfo {
   communityTakeover: boolean | null;
   botDegenCount: number | null;
   botDegenPct: number | null;
+  /** Perkiraan GMGN peluang token di-rug ("Rug %" di halaman token). */
+  rugPct: number | null;
 }
 
 /** Hasil satu panggilan hot_searches: response apa adanya (tanpa list token) dan token yang sudah dipetakan. */

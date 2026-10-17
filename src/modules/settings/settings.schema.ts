@@ -30,6 +30,8 @@ export const tokenFilterSchema = z.object({
   dexPaidOnly: z.boolean().default(false),
   maxBotDegenCount: z.coerce.number().int().min(0).nullable().default(null),
   maxBotDegenPct: nullablePct.default(null),
+  /** "Rug %" GMGN: perkiraan peluang token di-rug. */
+  maxRugPct: nullablePct.default(null),
 });
 
 export const botSettingsSchema = z.object({

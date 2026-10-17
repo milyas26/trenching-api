@@ -13,6 +13,7 @@ const MAX_RULES: { key: MaxKey; field: keyof TokenInfo; label: string; unit: str
   { key: 'maxSniperPct', field: 'sniperPct', label: 'Sniper', unit: '%' },
   { key: 'maxBotDegenCount', field: 'botDegenCount', label: 'Bot degen', unit: '' },
   { key: 'maxBotDegenPct', field: 'botDegenPct', label: 'Bot degen', unit: '%' },
+  { key: 'maxRugPct', field: 'rugPct', label: 'Rug', unit: '%' },
 ];
 
 /** Alasan token ditolak filter Token Info; kosong = lolos. */

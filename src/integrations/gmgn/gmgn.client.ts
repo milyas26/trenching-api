@@ -98,6 +98,7 @@ function toHotToken(t: RawHotToken): HotToken {
       communityTakeover: t.cto == null ? null : t.cto === 1,
       botDegenCount: t.bdc ?? null,
       botDegenPct: pct(t.bdr),
+      rugPct: pct(t.rug),
     },
     raw: t as unknown as Record<string, unknown>,
   };
