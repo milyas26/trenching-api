@@ -19,8 +19,10 @@ export class DexscreenerClient implements PriceSource {
       const best = new Map<string, { liquidity: number; quote: TokenQuote }>();
       for (const pair of pairs) {
         const mint = pair.baseToken?.address;
-        if (!mint || !chunk.includes(mint) || !pair.priceUsd) continue;
+        // Pair tanpa data likuiditas (bonding curve Meteora DBC, curve pump.fun non-SOL) harganya bisa beku
+        // walau token sudah pindah pool, jadi tidak dipakai; mint itu lalu diambil dari GeckoTerminal.
         const liquidity = pair.liquidity?.usd ?? 0;
+        if (!mint || !chunk.includes(mint) || !pair.priceUsd || liquidity <= 0) continue;
         const prev = best.get(mint);
         if (!prev || liquidity > prev.liquidity) {
           best.set(mint, {

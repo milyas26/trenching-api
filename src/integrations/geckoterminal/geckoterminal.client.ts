@@ -2,6 +2,8 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import type { Candle } from './geckoterminal.types.ts';
 
 const BASE_URL = 'https://api.geckoterminal.com/api/v2/networks/solana/pools/';
+const TOKEN_PRICE_URL = 'https://api.geckoterminal.com/api/v2/simple/networks/solana/token_price/';
+const MAX_PRICE_ADDRESSES = 30;
 /** API publik GeckoTerminal sudah 429 setelah ~5 request beruntun, jadi request diberi jarak. */
 const MIN_GAP_MS = 6_000;
 const RETRY_AFTER_429_MS = 15_000;
@@ -25,6 +27,25 @@ export class GeckoterminalClient {
     return (body.data?.attributes?.ohlcv_list ?? [])
       .map(([at = 0, open = 0, high = 0, low = 0, close = 0, volumeUsd = 0]) => ({ at, open, high, low, close, volumeUsd }))
       .reverse();
+  }
+
+  /**
+   * Harga USD per mint dari semua pool yang diindeks GeckoTerminal, termasuk pool yang di-quote token
+   * selain SOL. Mint tanpa harga tidak muncul di Map hasil.
+   */
+  async getTokenPrices(mints: string[]): Promise<Map<string, number>> {
+    const result = new Map<string, number>();
+    const unique = [...new Set(mints)];
+    for (let i = 0; i < unique.length; i += MAX_PRICE_ADDRESSES) {
+      const res = await this.get(TOKEN_PRICE_URL + unique.slice(i, i + MAX_PRICE_ADDRESSES).join(','));
+      if (!res.ok) throw new Error(`GeckoTerminal HTTP ${res.status}`);
+      const body = (await res.json()) as { data?: { attributes?: { token_prices?: Record<string, string | null> } } };
+      for (const [mint, raw] of Object.entries(body.data?.attributes?.token_prices ?? {})) {
+        const price = Number(raw);
+        if (raw && Number.isFinite(price) && price > 0) result.set(mint, price);
+      }
+    }
+    return result;
   }
 
   private async get(url: string) {

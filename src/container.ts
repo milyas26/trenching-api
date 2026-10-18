@@ -40,7 +40,9 @@ export function createContainer() {
   const dexscreener = new DexscreenerClient();
   const pumpportal = new PumpportalClient();
   const solana = new SolanaClient();
-  const prices = new OnchainPriceClient(solana, dexscreener);
+  // Satu instance supaya jeda anti-429 GeckoTerminal berlaku untuk harga dan chart agent sekaligus.
+  const gecko = new GeckoterminalClient();
+  const prices = new OnchainPriceClient(solana, dexscreener, gecko);
   const priceStream = new OnchainPriceStream(solana, new SolanaWsClient());
 
   const accountsRepo = new AccountsRepository(prisma);
@@ -57,7 +59,7 @@ export function createContainer() {
     new RealExecutor(pumpportal, solana),
   ]);
 
-  const agent = new AgentService(new DeepseekClient(), dexscreener, new GeckoterminalClient(), prices);
+  const agent = new AgentService(new DeepseekClient(), dexscreener, gecko, prices);
 
   const state = new BotState();
   const scanner = new ScannerService(state, gmgn, positionsRepo, settings, trading, logs, agent, snapshots);

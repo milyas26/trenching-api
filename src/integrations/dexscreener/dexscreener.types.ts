@@ -20,8 +20,8 @@ export interface DexPair {
 export interface TokenQuote {
   priceUsd: number;
   marketCap: number | null;
-  /** Asal harga: akun on-chain (pump, pumpswap) atau API Dexscreener. */
-  source: 'pump' | 'pumpswap' | 'dexscreener';
+  /** Asal harga: akun on-chain (pump, pumpswap), API Dexscreener, atau GeckoTerminal. */
+  source: 'pump' | 'pumpswap' | 'dexscreener' | 'geckoterminal';
 }
 
 /** Sumber harga yang dipakai monitor dan trading. Mint tanpa harga tidak muncul di Map hasil. */

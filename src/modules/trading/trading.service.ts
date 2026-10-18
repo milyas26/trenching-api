@@ -12,6 +12,12 @@ import { NoTokensError, type BuyCandidate, type TradeContext, type TradeExecutor
 
 const shortMint = (mint: string) => `${mint.slice(0, 4)}…${mint.slice(-4)}`;
 
+/** Batas selisih harga quote vs GMGN (kali lipat, naik atau turun) sebelum buy dibatalkan. */
+export const MAX_PRICE_DEVIATION = 3;
+
+export const priceDeviates = (quotePrice: number, gmgnPrice: number) =>
+  Math.max(quotePrice / gmgnPrice, gmgnPrice / quotePrice) > MAX_PRICE_DEVIATION;
+
 /** Buka/tutup posisi. Satu-satunya tempat yang memanggil executor (paper/real). */
 export class TradingService {
   private readonly executors: Record<TradeMode, TradeExecutor>;
@@ -51,6 +57,16 @@ export class TradingService {
     if (maxBuy !== null && maxBuy < amountSol) {
       await log.warn(`Saldo wallet tidak cukup untuk buy ${label}: maks ${maxBuy.toFixed(4)} SOL setelah fee`);
       return false;
+    }
+
+    // Data GMGN bisa tertinggal jauh dari pool (pernah 34x pada token yang sudah rug). Dicek sebelum
+    // claim supaya tidak ada posisi tercatat dan token bisa dicek lagi di scan berikutnya.
+    const preQuote = (await this.prices.getQuotes([token.mint]).catch(() => null))?.get(token.mint);
+    if (preQuote && token.price && priceDeviates(preQuote.priceUsd, token.price)) {
+      await log.warn(
+        `BUY ${label} dibatalkan: harga ${preQuote.source} $${preQuote.priceUsd} menyimpang >${MAX_PRICE_DEVIATION}x dari GMGN $${token.price}`,
+      );
+      return true;
     }
 
     // Disimpan di posisi supaya TP-nya tetap walau pengaturan OG diubah setelah beli.

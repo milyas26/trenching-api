@@ -1,6 +1,7 @@
 import type { SolanaClient, AccountInfo } from '../solana/solana.client.ts';
 import { isPubkey } from '../solana/pubkey.ts';
 import type { DexscreenerClient } from '../dexscreener/dexscreener.client.ts';
+import type { GeckoterminalClient } from '../geckoterminal/geckoterminal.client.ts';
 import type { PriceSource, TokenQuote } from '../dexscreener/dexscreener.types.ts';
 import {
   MAX_SANE_MC_USD, PYTH_SOL_USD, WSOL_MINT,
@@ -22,7 +23,8 @@ interface PumpSwapPool {
  * Harga spot langsung dari akun on-chain (commitment confirmed), tanpa cache API pihak ketiga.
  * - Bonding curve pump.fun: virtual SOL / virtual token reserves.
  * - Sudah graduate ke PumpSwap: (saldo vault WSOL + virtual quote reserve pool) / saldo vault token.
- * SOL/USD dari Pyth. Token di venue lain (Raydium, Meteora, dll) jatuh ke Dexscreener.
+ * SOL/USD dari Pyth. Token di venue lain (Raydium, Meteora, dll) jatuh ke Dexscreener, lalu GeckoTerminal
+ * untuk yang masih kosong, mis. curve pump.fun yang di-quote token selain SOL.
  */
 export class OnchainPriceClient implements PriceSource {
   private readonly pdas = new Map<string, { bondingCurve: string; pool: string }>();
@@ -32,6 +34,7 @@ export class OnchainPriceClient implements PriceSource {
   constructor(
     private readonly solana: SolanaClient,
     private readonly fallback: DexscreenerClient,
+    private readonly gecko: GeckoterminalClient,
   ) {}
 
   async getQuotes(mints: string[]): Promise<Map<string, TokenQuote>> {
@@ -47,15 +50,31 @@ export class OnchainPriceClient implements PriceSource {
       onchainError = e as Error;
     }
 
+    // Error baru dilempar kalau semua sumber yang dicoba gagal, supaya monitor mencatat lastPriceError.
+    const errors: string[] = onchainError ? [onchainError.message] : [];
+    let anySucceeded = !onchainError;
     const missing = all.filter((mint) => !result.has(mint));
     if (missing.length > 0) {
       try {
         for (const [mint, q] of await this.fallback.getQuotes(missing)) result.set(mint, q);
+        anySucceeded = true;
       } catch (e) {
-        // Error baru dilempar kalau kedua sumber gagal, supaya monitor mencatat lastPriceError.
-        if (onchainError) throw new Error(`${onchainError.message}; ${(e as Error).message}`);
+        errors.push((e as Error).message);
       }
     }
+
+    const stillMissing = all.filter((mint) => !result.has(mint));
+    if (stillMissing.length > 0) {
+      try {
+        for (const [mint, priceUsd] of await this.gecko.getTokenPrices(stillMissing)) {
+          result.set(mint, { priceUsd, marketCap: null, source: 'geckoterminal' });
+        }
+        anySucceeded = true;
+      } catch (e) {
+        errors.push((e as Error).message);
+      }
+    }
+    if (!anySucceeded) throw new Error(errors.join('; '));
     return result;
   }
 
