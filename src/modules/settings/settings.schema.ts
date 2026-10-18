@@ -32,6 +32,7 @@ export const tokenFilterSchema = z.object({
   maxBotDegenPct: nullablePct.default(null),
   /** "Rug %" GMGN: perkiraan peluang token di-rug. */
   maxRugPct: nullablePct.default(null),
+  maxSmartMoney: z.coerce.number().int().min(0).nullable().default(null),
   /** Hanya token bertag OG di GMGN. */
   ogOnly: z.boolean().default(false),
   /** Batas bawah aktivitas 1 jam terakhir dan jumlah wallet KOL / smart money. */
