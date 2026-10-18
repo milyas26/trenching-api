@@ -34,6 +34,11 @@ export const tokenFilterSchema = z.object({
   maxRugPct: nullablePct.default(null),
   /** Hanya token bertag OG di GMGN. */
   ogOnly: z.boolean().default(false),
+  /** Batas bawah aktivitas 1 jam terakhir dan jumlah wallet KOL / smart money. */
+  minSells1h: z.coerce.number().int().min(0).nullable().default(null),
+  minSwaps1h: z.coerce.number().int().min(0).nullable().default(null),
+  minKol: z.coerce.number().int().min(0).nullable().default(null),
+  minSmartMoney: z.coerce.number().int().min(0).nullable().default(null),
 });
 
 /**

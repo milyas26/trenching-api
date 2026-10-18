@@ -100,6 +100,10 @@ function toHotToken(t: RawHotToken): HotToken {
       botDegenPct: pct(t.bdr),
       rugPct: pct(t.rug),
       isOg: t.isog ?? null,
+      sells1h: t.se ?? null,
+      swaps1h: t.sw ?? null,
+      kolCount: t.kol ?? null,
+      smartMoneyCount: t.smt ?? null,
     },
     raw: t as unknown as Record<string, unknown>,
   };

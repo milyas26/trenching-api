@@ -53,7 +53,10 @@ export interface RawHotToken {
   pcp1m?: number;
   pcp5m?: number;
   bu?: number;
+  /** jumlah transaksi jual 1 jam terakhir */
   se?: number;
+  /** jumlah swap (beli + jual) 1 jam terakhir */
+  sw?: number;
   /** market cap tertinggi sepanjang sejarah */
   hhmc?: number;
   /** rasio bundler, 0-1 */
@@ -143,6 +146,12 @@ export interface TokenInfo {
   rugPct: number | null;
   /** Tag OG GMGN: token paling awal dengan nama yang sama. */
   isOg: boolean | null;
+  /** Jumlah transaksi jual dan swap 1 jam terakhir. */
+  sells1h: number | null;
+  swaps1h: number | null;
+  /** Jumlah wallet KOL dan smart money yang memegang token. */
+  kolCount: number | null;
+  smartMoneyCount: number | null;
 }
 
 /** Hasil satu panggilan hot_searches: response apa adanya (tanpa list token) dan token yang sudah dipetakan. */
