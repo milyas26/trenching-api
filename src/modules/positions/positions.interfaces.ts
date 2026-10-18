@@ -53,11 +53,17 @@ export interface ClosedPositionData {
 export interface ModeStats {
   open: number;
   closed: number;
+  /** Posisi closed dengan PnL > 0. */
   wins: number;
+  /** Posisi closed dengan PnL < 0. PnL tepat 0 tidak dihitung win maupun loss. */
+  losses: number;
   failed: number;
   realizedSol: number;
   unrealizedSol: number;
   lockedSol: number;
+  /** Rata-rata PnL per posisi closed; null kalau belum ada yang closed. */
+  avgPnlSol: number | null;
+  avgPnlPct: number | null;
 }
 
 export interface PositionStats {
@@ -82,6 +88,6 @@ export interface IPositionsRepository {
   markClosed(id: number, data: ClosedPositionData): Promise<void>;
   revertToOpen(id: number, error: string): Promise<void>;
   recoverStuck(): Promise<{ id: number; accountId: number; mint: string; status: PositionStatus }[]>;
-  /** Statistik semua mode satu akun sekaligus (3 query total, bukan 3 per mode). */
+  /** Statistik semua mode satu akun sekaligus (4 query total, bukan 4 per mode). */
   allModeStats(accountId: number): Promise<Record<TradeMode, ModeStats>>;
 }

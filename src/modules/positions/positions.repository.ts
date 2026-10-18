@@ -106,22 +106,31 @@ export class PositionsRepository implements IPositionsRepository {
   }
 
   async allModeStats(accountId: number): Promise<Record<TradeMode, ModeStats>> {
-    const [byStatus, wins, open] = await Promise.all([
+    const [byStatus, wins, losses, open] = await Promise.all([
       this.db.position.groupBy({
         by: ['mode', 'status'],
         where: { accountId },
         _count: { _all: true },
         _sum: { amountSol: true, pnlSol: true },
+        _avg: { pnlPct: true },
       }),
       this.db.position.groupBy({
         by: ['mode'],
         where: { accountId, status: 'closed', pnlSol: { gt: 0 } },
         _count: { _all: true },
       }),
+      this.db.position.groupBy({
+        by: ['mode'],
+        where: { accountId, status: 'closed', pnlSol: { lt: 0 } },
+        _count: { _all: true },
+      }),
       this.db.position.findMany({ where: { accountId, status: 'open' }, select: { mode: true, amountSol: true, pnlPct: true } }),
     ]);
 
-    const empty = (): ModeStats => ({ open: 0, closed: 0, wins: 0, failed: 0, realizedSol: 0, unrealizedSol: 0, lockedSol: 0 });
+    const empty = (): ModeStats => ({
+      open: 0, closed: 0, wins: 0, losses: 0, failed: 0,
+      realizedSol: 0, unrealizedSol: 0, lockedSol: 0, avgPnlSol: null, avgPnlPct: null,
+    });
     const result: Record<TradeMode, ModeStats> = { paper: empty(), real: empty() };
 
     for (const g of byStatus) {
@@ -132,11 +141,14 @@ export class PositionsRepository implements IPositionsRepository {
       } else if (g.status === 'closed') {
         stats.closed = g._count._all;
         stats.realizedSol = g._sum.pnlSol ?? 0;
+        stats.avgPnlSol = stats.realizedSol / g._count._all;
+        stats.avgPnlPct = g._avg.pnlPct;
       } else if (g.status === 'failed') {
         stats.failed = g._count._all;
       }
     }
     for (const w of wins) result[w.mode].wins = w._count._all;
+    for (const l of losses) result[l.mode].losses = l._count._all;
     for (const p of open) result[p.mode].unrealizedSol += p.amountSol * ((p.pnlPct ?? 0) / 100);
     return result;
   }
