@@ -18,6 +18,8 @@ export class PositionsController {
 
   list = (req: FastifyRequest) => this.positions.list({ accountId: accountIdOf(req), ...listQuery.parse(req.query) });
 
+  buyReason = (req: FastifyRequest) => this.positions.buyReason(accountIdOf(req), idParams.parse(req.params).id);
+
   close = async (req: FastifyRequest) => {
     const { id } = idParams.parse(req.params);
     await this.trading.close(id, 'manual');

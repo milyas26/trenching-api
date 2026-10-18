@@ -66,6 +66,20 @@ export interface ModeStats {
   avgPnlPct: number | null;
 }
 
+/** Keputusan beli yang tersimpan di token_snapshots, untuk popup detail posisi di app. */
+export interface BuyReasonDto {
+  /** no_ai = dibeli langsung tanpa review AI. */
+  decision: 'buy' | 'no_ai';
+  confidence: number | null;
+  reason: string | null;
+  recheckGainPct: number | null;
+  /** Bentuk sama dengan ReviewEvidence agent; null untuk buy tanpa AI. */
+  market: unknown;
+  chart: unknown;
+  priceSamples: unknown;
+  decidedAt: Date;
+}
+
 export interface PositionStats {
   paper: ModeStats & { balanceSol: number };
   real: ModeStats;
@@ -88,6 +102,9 @@ export interface IPositionsRepository {
   markClosed(id: number, data: ClosedPositionData): Promise<void>;
   revertToOpen(id: number, error: string): Promise<void>;
   recoverStuck(): Promise<{ id: number; accountId: number; mint: string; status: PositionStatus }[]>;
+  findForAccount(id: number, accountId: number): Promise<Position | null>;
+  /** Snapshot buy terakhir sebelum posisi dibuka; null untuk posisi lama sebelum snapshot disimpan. */
+  buyReason(p: Pick<Position, 'accountId' | 'mint' | 'openedAt'>): Promise<BuyReasonDto | null>;
   /** Statistik semua mode satu akun sekaligus (4 query total, bukan 4 per mode). */
   allModeStats(accountId: number): Promise<Record<TradeMode, ModeStats>>;
 }

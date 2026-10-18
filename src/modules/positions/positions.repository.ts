@@ -2,8 +2,8 @@ import { Prisma } from '../../generated/prisma/client.ts';
 import type { PrismaClient } from '../../lib/prisma.ts';
 import {
   ACTIVE_STATUSES, FINISHED_STATUSES,
-  type ClosedPositionData, type IPositionsRepository, type ListPositionsQuery,
-  type ModeStats, type NewPosition, type OpenedPositionData, type TradeMode,
+  type BuyReasonDto, type ClosedPositionData, type IPositionsRepository, type ListPositionsQuery,
+  type ModeStats, type NewPosition, type OpenedPositionData, type Position, type TradeMode,
 } from './positions.interfaces.ts';
 
 export class PositionsRepository implements IPositionsRepository {
@@ -28,6 +28,25 @@ export class PositionsRepository implements IPositionsRepository {
 
   countActive(accountId: number, mode?: TradeMode) {
     return this.db.position.count({ where: { accountId, mode, status: { in: ACTIVE_STATUSES } } });
+  }
+
+  findForAccount(id: number, accountId: number) {
+    return this.db.position.findFirst({ where: { id, accountId } });
+  }
+
+  async buyReason({ accountId, mint, openedAt }: Pick<Position, 'accountId' | 'mint' | 'openedAt'>): Promise<BuyReasonDto | null> {
+    // Tanpa filter mode: mode akun bisa diganti selama review AI berjalan, dan satu mint hanya dibeli sekali per akun.
+    const row = await this.db.tokenSnapshot.findFirst({
+      where: { accountId, mint, decision: { in: ['buy', 'no_ai'] }, createdAt: { lte: openedAt } },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        decision: true, confidence: true, reason: true, recheckGainPct: true,
+        market: true, chart: true, priceSamples: true, createdAt: true,
+      },
+    });
+    if (!row) return null;
+    const { createdAt, decision, ...rest } = row;
+    return { ...rest, decision: decision as BuyReasonDto['decision'], decidedAt: createdAt };
   }
 
   findOpen() {
