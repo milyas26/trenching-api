@@ -53,6 +53,7 @@ export interface OpenedPositionData {
 export interface PositionDto extends Position {
   currentMc: number | null;
   highMc: number | null;
+  lowMc: number | null;
   exitMc: number | null;
 }
 
@@ -112,7 +113,7 @@ export interface IPositionsRepository {
   claim(data: NewPosition): Promise<number | null>;
   markOpen(id: number, data: OpenedPositionData): Promise<void>;
   markFailed(id: number, error: string): Promise<void>;
-  updatePrice(id: number, price: number, highPrice: number, pnlPct: number): Promise<void>;
+  updatePrice(id: number, price: number, highPrice: number, lowPrice: number, pnlPct: number): Promise<void>;
   /** open -> closing secara atomik; null kalau posisi tidak sedang open. */
   claimForClose(id: number): Promise<Position | null>;
   markClosed(id: number, data: ClosedPositionData): Promise<void>;

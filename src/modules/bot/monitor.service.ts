@@ -30,7 +30,7 @@ const CONFIRM_RATIO = 2;
  */
 export class MonitorService {
   private busy = false;
-  /** Posisi open terakhir dari DB, highPrice-nya ikut diperbarui oleh stream. */
+  /** Posisi open terakhir dari DB, highPrice/lowPrice-nya ikut diperbarui oleh stream. */
   private open = new Map<number, Position>();
   private readonly closing = new Set<number>();
   private readonly lastWrite = new Map<number, number>();
@@ -108,12 +108,13 @@ export class MonitorService {
     return false;
   }
 
-  /** highPrice di memori bisa lebih baru dari DB karena tulisan stream di-throttle. */
+  /** highPrice/lowPrice di memori bisa lebih baru dari DB karena tulisan stream di-throttle. */
   private syncOpen(rows: Position[]) {
     const next = new Map<number, Position>();
     for (const row of rows) {
       const cached = this.open.get(row.id);
       if (cached?.highPrice) row.highPrice = Math.max(row.highPrice ?? 0, cached.highPrice);
+      if (cached?.lowPrice) row.lowPrice = Math.min(row.lowPrice ?? Infinity, cached.lowPrice);
       next.set(row.id, row);
     }
     for (const id of this.lastWrite.keys()) if (!next.has(id)) this.lastWrite.delete(id);
@@ -128,14 +129,16 @@ export class MonitorService {
     if (!(await this.confirmed(pos, price))) return;
 
     const highPrice = Math.max(pos.highPrice ?? 0, price);
+    const lowPrice = Math.min(pos.lowPrice ?? pos.entryPrice, price);
     const pnl = pnlPct(pos.entryPrice, price);
     pos.highPrice = highPrice;
+    pos.lowPrice = lowPrice;
     pos.currentPrice = price;
     pos.pnlPct = pnl;
     const dto = toPositionDto(pos);
     this.live.publishTick({
-      id: pos.id, mint: pos.mint, currentPrice: price, highPrice, pnlPct: pnl,
-      currentMc: dto.currentMc, highMc: dto.highMc, at: Date.now(),
+      id: pos.id, mint: pos.mint, currentPrice: price, highPrice, lowPrice, pnlPct: pnl,
+      currentMc: dto.currentMc, highMc: dto.highMc, lowMc: dto.lowMc, at: Date.now(),
     });
     // Posisi token OG bisa punya take profit sendiri (disimpan saat beli).
     const rules = { ...settings, takeProfitPct: pos.takeProfitPct ?? settings.takeProfitPct };
@@ -144,7 +147,7 @@ export class MonitorService {
     const now = Date.now();
     if (reason || !throttled || now - (this.lastWrite.get(pos.id) ?? 0) >= STREAM_WRITE_MS) {
       this.lastWrite.set(pos.id, now);
-      await this.positions.updatePrice(pos.id, price, highPrice, pnl);
+      await this.positions.updatePrice(pos.id, price, highPrice, lowPrice, pnl);
     }
     if (!reason || this.closing.has(pos.id)) return;
     if (now < (this.sellRetry.get(pos.id)?.at ?? 0)) return;

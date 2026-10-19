@@ -78,6 +78,8 @@ model Position {
   takeProfitPct Float?         @map("take_profit_pct")
   currentPrice  Float?         @map("current_price")
   highPrice     Float?         @map("high_price")
+  /// Harga terendah selama posisi open; null untuk posisi yang ditutup sebelum kolom ini ada.
+  lowPrice      Float?         @map("low_price")
   pnlPct        Float?         @map("pnl_pct")
   exitPrice     Float?         @map("exit_price")
   exitReason    ExitReason?    @map("exit_reason")

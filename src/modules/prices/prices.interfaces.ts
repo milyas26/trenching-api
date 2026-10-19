@@ -4,9 +4,11 @@ export interface PriceTick {
   mint: string;
   currentPrice: number;
   highPrice: number;
+  lowPrice: number;
   pnlPct: number;
   currentMc: number | null;
   highMc: number | null;
+  lowMc: number | null;
   /** ms epoch saat harga diterapkan monitor. */
   at: number;
 }

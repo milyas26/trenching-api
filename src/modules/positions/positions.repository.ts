@@ -80,7 +80,7 @@ export class PositionsRepository implements IPositionsRepository {
     await this.db.position.update({
       where: { id },
       data: {
-        status: 'open', entryPrice, currentPrice: entryPrice, highPrice: entryPrice,
+        status: 'open', entryPrice, currentPrice: entryPrice, highPrice: entryPrice, lowPrice: entryPrice,
         supply, entryMc: supply ? entryPrice * supply : undefined,
         pnlPct: 0, buySignature, priceUpdatedAt: new Date(),
       },
@@ -91,10 +91,10 @@ export class PositionsRepository implements IPositionsRepository {
     await this.db.position.update({ where: { id }, data: { status: 'failed', error, closedAt: new Date() } });
   }
 
-  async updatePrice(id: number, price: number, highPrice: number, pnlPct: number) {
+  async updatePrice(id: number, price: number, highPrice: number, lowPrice: number, pnlPct: number) {
     await this.db.position.updateMany({
       where: { id, status: 'open' },
-      data: { currentPrice: price, highPrice, pnlPct, priceUpdatedAt: new Date() },
+      data: { currentPrice: price, highPrice, lowPrice, pnlPct, priceUpdatedAt: new Date() },
     });
   }
 

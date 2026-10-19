@@ -15,6 +15,7 @@ export function toPositionDto(p: Position): PositionDto {
     entryMc: mc(p.entryPrice) ?? p.entryMc,
     currentMc: mc(p.currentPrice),
     highMc: mc(p.highPrice),
+    lowMc: mc(p.lowPrice),
     exitMc: mc(p.exitPrice),
   };
 }
