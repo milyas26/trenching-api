@@ -58,6 +58,8 @@ export const botSettingsSchema = z.object({
   buyAmountSol: z.coerce.number().positive().default(0.05),
   takeProfitPct: z.coerce.number().positive().default(50),
   stopLossPct: z.coerce.number().gt(0).lt(100).default(20),
+  /** 0 = mati. Close paksa saat market cap turun ke X ribu USD, walau stop loss % belum kena. */
+  stopLossMc: z.coerce.number().min(0).default(0),
   /** 0 = mati. Jual kalau harga turun X% dari harga tertinggi. */
   trailingStopPct: z.coerce.number().min(0).lt(100).default(0),
   /** 0 = mati. Close paksa setelah X menit. */

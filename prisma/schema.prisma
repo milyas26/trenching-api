@@ -24,6 +24,7 @@ enum PositionStatus {
 enum ExitReason {
   take_profit
   stop_loss
+  stop_loss_mc
   trailing_stop
   max_hold
   manual

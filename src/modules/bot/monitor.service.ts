@@ -142,7 +142,10 @@ export class MonitorService {
     });
     // Posisi token OG bisa punya take profit sendiri (disimpan saat beli).
     const rules = { ...settings, takeProfitPct: pos.takeProfitPct ?? settings.takeProfitPct };
-    const reason = evaluateExit({ entryPrice: pos.entryPrice, highPrice, openedAt: pos.openedAt, price }, rules);
+    const reason = evaluateExit(
+      { entryPrice: pos.entryPrice, highPrice, openedAt: pos.openedAt, price, mc: dto.currentMc, entryMc: dto.entryMc },
+      rules,
+    );
 
     const now = Date.now();
     if (reason || !throttled || now - (this.lastWrite.get(pos.id) ?? 0) >= STREAM_WRITE_MS) {
