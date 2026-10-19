@@ -1,5 +1,7 @@
 import { notFound } from '../../common/errors.ts';
-import type { BuyReasonDto, IPositionsRepository, ListPositionsQuery, PositionDto, PositionStats } from './positions.interfaces.ts';
+import type {
+  BuyReasonDto, IPositionsRepository, ListPositionsQuery, PositionDto, PositionHistoryPage, PositionHistoryQuery, PositionStats,
+} from './positions.interfaces.ts';
 import { toPositionDto } from './positions.mapper.ts';
 import type { BotSettings } from '../settings/settings.interfaces.ts';
 
@@ -8,6 +10,13 @@ export class PositionsService {
 
   async list(query: ListPositionsQuery): Promise<PositionDto[]> {
     return (await this.repo.list(query, 200)).map(toPositionDto);
+  }
+
+  /** Ambil satu baris lebih untuk tahu masih ada halaman berikutnya tanpa query count. */
+  async history(query: PositionHistoryQuery): Promise<PositionHistoryPage> {
+    const rows = await this.repo.history({ ...query, limit: query.limit + 1 });
+    const items = rows.slice(0, query.limit).map(toPositionDto);
+    return { items, nextCursor: rows.length > query.limit ? (items.at(-1)?.id ?? null) : null };
   }
 
   async buyReason(accountId: number, id: number): Promise<{ buy: BuyReasonDto | null }> {

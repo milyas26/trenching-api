@@ -3,7 +3,7 @@ import type { PrismaClient } from '../../lib/prisma.ts';
 import {
   ACTIVE_STATUSES, FINISHED_STATUSES,
   type BuyReasonDto, type ClosedPositionData, type IPositionsRepository, type ListPositionsQuery,
-  type ModeStats, type NewPosition, type OpenedPositionData, type Position, type TradeMode,
+  type ModeStats, type NewPosition, type OpenedPositionData, type Position, type PositionHistoryQuery, type TradeMode,
 } from './positions.interfaces.ts';
 
 export class PositionsRepository implements IPositionsRepository {
@@ -18,6 +18,16 @@ export class PositionsRepository implements IPositionsRepository {
       },
       orderBy: [{ closedAt: { sort: 'desc', nulls: 'first' } }, { openedAt: 'desc' }],
       take: limit,
+    });
+  }
+
+  /** closedAt selalu terisi untuk status closed/failed, jadi aman dipakai Prisma sebagai kunci cursor. */
+  history({ accountId, mode, cursor, limit }: PositionHistoryQuery) {
+    return this.db.position.findMany({
+      where: { accountId, mode, status: { in: FINISHED_STATUSES } },
+      orderBy: [{ closedAt: 'desc' }, { id: 'desc' }],
+      take: limit,
+      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
     });
   }
 

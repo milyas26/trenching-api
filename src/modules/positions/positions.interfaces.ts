@@ -15,6 +15,20 @@ export interface ListPositionsQuery {
   mode?: TradeMode;
 }
 
+export interface PositionHistoryQuery {
+  accountId: number;
+  mode?: TradeMode;
+  /** Id posisi terakhir dari halaman sebelumnya; kosong = halaman pertama. */
+  cursor?: number;
+  limit: number;
+}
+
+export interface PositionHistoryPage {
+  items: PositionDto[];
+  /** null = sudah halaman terakhir. */
+  nextCursor: number | null;
+}
+
 export interface NewPosition {
   accountId: number;
   mode: TradeMode;
@@ -87,6 +101,8 @@ export interface PositionStats {
 
 export interface IPositionsRepository {
   list(query: ListPositionsQuery, limit: number): Promise<Position[]>;
+  /** Posisi closed/failed, terbaru dulu, berhalaman lewat cursor id. */
+  history(query: PositionHistoryQuery): Promise<Position[]>;
   /** Semua mint yang pernah dicoba buy oleh akun ini, paper maupun real, termasuk yang gagal. */
   boughtMints(accountId: number): Promise<Set<string>>;
   /** Tanpa mode = semua mode. */
