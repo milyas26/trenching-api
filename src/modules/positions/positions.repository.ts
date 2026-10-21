@@ -1,10 +1,52 @@
 import { Prisma } from '../../generated/prisma/client.ts';
 import type { PrismaClient } from '../../lib/prisma.ts';
 import {
-  ACTIVE_STATUSES, FINISHED_STATUSES,
-  type BuyReasonDto, type ClosedPositionData, type IPositionsRepository, type ListPositionsQuery,
+  ACTIVE_STATUSES, FINISHED_STATUSES, HISTORY_FLAG_KEYS, HISTORY_TOKEN_INFO_KEYS,
+  type BuyReasonDto, type ClosedPositionData, type HistoryRangeKey, type HistorySummary, type IPositionsRepository, type ListPositionsQuery,
   type ModeStats, type NewPosition, type OpenedPositionData, type Position, type PositionHistoryQuery, type TradeMode,
 } from './positions.interfaces.ts';
+
+/** Hanya nilai JSON bertipe number yang di-cast, supaya data lama yang aneh tidak membuat query error. */
+function tokenInfoNum(...path: string[]) {
+  const parent = ['token_info', ...path.slice(0, -1).map((k) => `'${k}'`)].join('->');
+  const key = `'${path.at(-1)}'`;
+  return `CASE WHEN jsonb_typeof(${parent}->${key}) = 'number' THEN (${parent}->>${key})::float8 END`;
+}
+
+const txnsRatio = (key: string) => `${tokenInfoNum(key, 'buys')} / NULLIF(${tokenInfoNum(key, 'sells')}, 0)`;
+
+/**
+ * Ekspresi SQL tiap filter range. Semuanya konstanta (bukan input user), jadi aman dipakai lewat Prisma.raw.
+ * Rasio buy/sell mengikuti chip di app: data DexScreener, GMGN hanya kalau DexScreener tidak ada.
+ */
+const RANGE_SQL: Record<HistoryRangeKey, string> = {
+  ...Object.fromEntries(HISTORY_TOKEN_INFO_KEYS.map((k) => [k, tokenInfoNum(k)])) as Record<(typeof HISTORY_TOKEN_INFO_KEYS)[number], string>,
+  buySellRatio1h: `CASE WHEN jsonb_typeof(token_info->'dexTxns1h') = 'object' THEN ${txnsRatio('dexTxns1h')} ELSE ${txnsRatio('gmgnTxns1h')} END`,
+  entryMc: 'entry_mc',
+  // Sama dengan umur token di kartu posisi: dari createdAt token sampai posisi dibuka.
+  tokenAgeMinutes: `(EXTRACT(EPOCH FROM opened_at) - ${tokenInfoNum('createdAt')}) / 60`,
+  holdMinutes: 'EXTRACT(EPOCH FROM (closed_at - opened_at)) / 60',
+};
+
+/** Kondisi WHERE riwayat (akun, status selesai, mode, range, flag), dipakai daftar dan ringkasan. */
+function historyConditions({ accountId, mode, ranges, flags }: Omit<PositionHistoryQuery, 'cursor' | 'limit'>) {
+  const conditions = [
+    Prisma.sql`account_id = ${accountId}`,
+    Prisma.sql`status::text IN (${Prisma.join(FINISHED_STATUSES)})`,
+  ];
+  if (mode) conditions.push(Prisma.sql`mode::text = ${mode}`);
+  for (const [key, { min, max } = {}] of Object.entries(ranges) as [HistoryRangeKey, { min?: number; max?: number }][]) {
+    const expr = Prisma.raw(`(${RANGE_SQL[key]})`);
+    if (min !== undefined) conditions.push(Prisma.sql`${expr} >= ${min}`);
+    if (max !== undefined) conditions.push(Prisma.sql`${expr} <= ${max}`);
+  }
+  // Perbandingan jsonb: null atau field yang tidak ada tidak sama dengan true maupun false.
+  for (const key of HISTORY_FLAG_KEYS) {
+    const value = flags[key];
+    if (value !== undefined) conditions.push(Prisma.sql`token_info->${key} = to_jsonb(${value}::boolean)`);
+  }
+  return conditions;
+}
 
 export class PositionsRepository implements IPositionsRepository {
   constructor(private readonly db: PrismaClient) {}
@@ -21,14 +63,47 @@ export class PositionsRepository implements IPositionsRepository {
     });
   }
 
-  /** closedAt selalu terisi untuk status closed/failed, jadi aman dipakai Prisma sebagai kunci cursor. */
-  history({ accountId, mode, cursor, limit }: PositionHistoryQuery) {
-    return this.db.position.findMany({
-      where: { accountId, mode, status: { in: FINISHED_STATUSES } },
-      orderBy: [{ closedAt: 'desc' }, { id: 'desc' }],
-      take: limit,
-      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
-    });
+  /**
+   * Filter range butuh ekspresi yang tidak bisa ditulis lewat Prisma (field JSON di-cast, selisih dua kolom),
+   * jadi id dicari dengan SQL lalu barisnya diambil lewat Prisma. closedAt selalu terisi untuk closed/failed,
+   * jadi (closed_at, id) aman sebagai kunci cursor.
+   */
+  async history(query: PositionHistoryQuery) {
+    const conditions = historyConditions(query);
+    if (query.cursor) {
+      conditions.push(Prisma.sql`(closed_at, id) < (SELECT closed_at, id FROM positions WHERE id = ${query.cursor})`);
+    }
+
+    const ids = (await this.db.$queryRaw<{ id: number }[]>`
+      SELECT id FROM positions WHERE ${Prisma.join(conditions, ' AND ')}
+      ORDER BY closed_at DESC, id DESC LIMIT ${query.limit}
+    `).map((r) => r.id);
+    const rows = await this.db.position.findMany({ where: { id: { in: ids } } });
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    return ids.flatMap((id) => byId.get(id) ?? []);
+  }
+
+  /** Win dan loss dihitung seperti statistik mode di Ringkasan: hanya posisi closed, PnL tepat 0 bukan keduanya. */
+  async historySummary(query: Omit<PositionHistoryQuery, 'cursor' | 'limit'>): Promise<HistorySummary> {
+    const closed = Prisma.raw(`status::text = 'closed'`);
+    const [row] = await this.db.$queryRaw<HistorySummary[]>`
+      SELECT
+        count(*)::int AS total,
+        count(*) FILTER (WHERE ${closed})::int AS closed,
+        count(*) FILTER (WHERE status::text = 'failed')::int AS failed,
+        count(*) FILTER (WHERE ${closed} AND pnl_sol > 0)::int AS wins,
+        count(*) FILTER (WHERE ${closed} AND pnl_sol < 0)::int AS losses,
+        COALESCE(sum(pnl_sol) FILTER (WHERE ${closed} AND pnl_sol > 0), 0)::float8 AS "profitSol",
+        COALESCE(sum(pnl_sol) FILTER (WHERE ${closed} AND pnl_sol < 0), 0)::float8 AS "lossSol",
+        COALESCE(sum(pnl_sol) FILTER (WHERE ${closed}), 0)::float8 AS "netSol",
+        (avg(pnl_sol) FILTER (WHERE ${closed}))::float8 AS "avgPnlSol",
+        (avg(pnl_pct) FILTER (WHERE ${closed}))::float8 AS "avgPnlPct",
+        (max(pnl_pct) FILTER (WHERE ${closed}))::float8 AS "bestPnlPct",
+        (min(pnl_pct) FILTER (WHERE ${closed}))::float8 AS "worstPnlPct",
+        (avg(${Prisma.raw(RANGE_SQL.holdMinutes)}) FILTER (WHERE ${closed}))::float8 AS "avgHoldMinutes"
+      FROM positions WHERE ${Prisma.join(historyConditions(query), ' AND ')}
+    `;
+    return row!;
   }
 
   async boughtMints(accountId: number) {

@@ -14,9 +14,12 @@ export class PositionsService {
 
   /** Ambil satu baris lebih untuk tahu masih ada halaman berikutnya tanpa query count. */
   async history(query: PositionHistoryQuery): Promise<PositionHistoryPage> {
-    const rows = await this.repo.history({ ...query, limit: query.limit + 1 });
+    const [rows, summary] = await Promise.all([
+      this.repo.history({ ...query, limit: query.limit + 1 }),
+      query.cursor ? undefined : this.repo.historySummary(query),
+    ]);
     const items = rows.slice(0, query.limit).map(toPositionDto);
-    return { items, nextCursor: rows.length > query.limit ? (items.at(-1)?.id ?? null) : null };
+    return { summary, items, nextCursor: rows.length > query.limit ? (items.at(-1)?.id ?? null) : null };
   }
 
   async buyReason(accountId: number, id: number): Promise<{ buy: BuyReasonDto | null }> {

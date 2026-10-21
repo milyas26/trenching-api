@@ -15,15 +15,61 @@ export interface ListPositionsQuery {
   mode?: TradeMode;
 }
 
+/** Field angka Token Info (JSON token_info) yang bisa disaring di riwayat. */
+export const HISTORY_TOKEN_INFO_KEYS = [
+  'top10Pct', 'devHoldPct', 'insiderPct', 'bundlerPct', 'phishingPct', 'sniperPct',
+  'botDegenCount', 'botDegenPct', 'rugPct', 'swaps1h', 'sells1h', 'smartMoneyCount', 'kolCount',
+] as const;
+
+/**
+ * Filter range riwayat. Satuan: entryMc USD, tokenAgeMinutes umur token saat dibeli (menit),
+ * holdMinutes menit, buySellRatio1h rasio yang sama dengan chip di app (DexScreener, fallback GMGN).
+ */
+export const HISTORY_RANGE_KEYS = [
+  ...HISTORY_TOKEN_INFO_KEYS, 'buySellRatio1h', 'entryMc', 'tokenAgeMinutes', 'holdMinutes',
+] as const;
+export type HistoryRangeKey = (typeof HISTORY_RANGE_KEYS)[number];
+export type HistoryRanges = Partial<Record<HistoryRangeKey, { min?: number; max?: number }>>;
+
+/** Field boolean Token Info yang bisa disaring: true = harus ya, false = harus tidak. */
+export const HISTORY_FLAG_KEYS = ['devSold', 'dexPaid', 'communityTakeover', 'isOg'] as const;
+export type HistoryFlagKey = (typeof HISTORY_FLAG_KEYS)[number];
+export type HistoryFlags = Partial<Record<HistoryFlagKey, boolean>>;
+
 export interface PositionHistoryQuery {
   accountId: number;
   mode?: TradeMode;
+  /** Posisi tanpa nilai untuk field yang disaring (range maupun flag) ikut tersaring keluar. */
+  ranges: HistoryRanges;
+  flags: HistoryFlags;
   /** Id posisi terakhir dari halaman sebelumnya; kosong = halaman pertama. */
   cursor?: number;
   limit: number;
 }
 
+/** Ringkasan semua riwayat yang lolos filter, bukan hanya halaman yang sedang dimuat. */
+export interface HistorySummary {
+  /** closed + failed */
+  total: number;
+  closed: number;
+  failed: number;
+  wins: number;
+  losses: number;
+  /** Jumlah PnL posisi untung, jumlah PnL posisi rugi (negatif), dan totalnya. */
+  profitSol: number;
+  lossSol: number;
+  netSol: number;
+  /** Rata-rata dan ekstrem hanya dari posisi closed; null kalau belum ada yang closed. */
+  avgPnlSol: number | null;
+  avgPnlPct: number | null;
+  bestPnlPct: number | null;
+  worstPnlPct: number | null;
+  avgHoldMinutes: number | null;
+}
+
 export interface PositionHistoryPage {
+  /** Hanya ada di halaman pertama (tanpa cursor). */
+  summary?: HistorySummary;
   items: PositionDto[];
   /** null = sudah halaman terakhir. */
   nextCursor: number | null;
@@ -104,6 +150,7 @@ export interface IPositionsRepository {
   list(query: ListPositionsQuery, limit: number): Promise<Position[]>;
   /** Posisi closed/failed, terbaru dulu, berhalaman lewat cursor id. */
   history(query: PositionHistoryQuery): Promise<Position[]>;
+  historySummary(query: Omit<PositionHistoryQuery, 'cursor' | 'limit'>): Promise<HistorySummary>;
   /** Semua mint yang pernah dicoba buy oleh akun ini, paper maupun real, termasuk yang gagal. */
   boughtMints(accountId: number): Promise<Set<string>>;
   /** Tanpa mode = semua mode. */
