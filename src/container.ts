@@ -62,7 +62,7 @@ export function createContainer() {
   const agent = new AgentService(new DeepseekClient(), dexscreener, gecko, prices);
 
   const state = new BotState();
-  const scanner = new ScannerService(state, gmgn, positionsRepo, settings, trading, logs, agent, snapshots);
+  const scanner = new ScannerService(state, gmgn, dexscreener, positionsRepo, settings, trading, logs, agent, snapshots);
   const livePrices = new PricesService();
   const monitor = new MonitorService(state, prices, priceStream, positionsRepo, settings, trading, logs, livePrices);
   priceStream.onQuote((mint, quote) => void monitor.handleQuote(mint, quote));

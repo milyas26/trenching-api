@@ -40,6 +40,13 @@ export const tokenFilterSchema = z.object({
   minSwaps1h: z.coerce.number().int().min(0).nullable().default(null),
   minKol: z.coerce.number().int().min(0).nullable().default(null),
   minSmartMoney: z.coerce.number().int().min(0).nullable().default(null),
+  /**
+   * Filter dari pair DexScreener (likuiditas terbesar), dicek setelah filter GMGN di atas.
+   * Rasio = jumlah transaksi buy / sell 1 jam terakhir; liq/MC = likuiditas USD / market cap.
+   */
+  maxBuySellRatio1h: z.coerce.number().positive().nullable().default(null),
+  minSocials: z.coerce.number().int().min(0).nullable().default(null),
+  minLiqMcRatio: z.coerce.number().min(0).nullable().default(null),
 });
 
 /**

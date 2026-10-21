@@ -36,6 +36,25 @@ export class DexscreenerClient implements PriceSource {
     return result;
   }
 
+  /** Pair dengan likuiditas terbesar per mint, sama dengan pair pertama getPairs(). Mint tanpa pair tidak muncul di Map hasil. */
+  async getTopPairs(mints: string[]): Promise<Map<string, DexPair>> {
+    const result = new Map<string, DexPair>();
+    const unique = [...new Set(mints)];
+
+    for (let i = 0; i < unique.length; i += MAX_PER_REQUEST) {
+      const chunk = unique.slice(i, i + MAX_PER_REQUEST);
+      const res = await fetch(BASE_URL + chunk.join(','), { signal: AbortSignal.timeout(15_000) });
+      if (!res.ok) throw new Error(`DexScreener HTTP ${res.status}`);
+      for (const pair of (await res.json()) as DexPair[]) {
+        const mint = pair.baseToken?.address;
+        if (!mint || !chunk.includes(mint)) continue;
+        const prev = result.get(mint);
+        if (!prev || (pair.liquidity?.usd ?? 0) > (prev.liquidity?.usd ?? 0)) result.set(mint, pair);
+      }
+    }
+    return result;
+  }
+
   /** Semua pair satu token, urut likuiditas terbesar dulu. */
   async getPairs(mint: string): Promise<DexPair[]> {
     const res = await fetch(BASE_URL + mint, { signal: AbortSignal.timeout(15_000) });

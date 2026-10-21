@@ -1,4 +1,5 @@
 import type { HotToken, TokenInfo } from '../../integrations/gmgn/gmgn.types.ts';
+import type { DexPair } from '../../integrations/dexscreener/dexscreener.types.ts';
 import type { BotSettings } from '../settings/settings.interfaces.ts';
 
 type TokenFilter = BotSettings['tokenFilter'];
@@ -57,4 +58,41 @@ export function applyTokenFilter(tokens: HotToken[], filter: TokenFilter) {
     else rejected.set(token.mint, reasons);
   }
   return { passed, rejected };
+}
+
+/** Ada filter DexScreener yang aktif, jadi scan perlu mengambil pair DexScreener. */
+export function needsDexFilter(filter: TokenFilter): boolean {
+  return filter.maxBuySellRatio1h !== null || filter.minSocials !== null || filter.minLiqMcRatio !== null;
+}
+
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
+/** Alasan token ditolak filter DexScreener; kosong = lolos. pair undefined = token belum ada di DexScreener. */
+export function dexFilterRejections(pair: DexPair | undefined, filter: TokenFilter): string[] {
+  if (!needsDexFilter(filter)) return [];
+  if (!pair) return ['Belum ada pair di DexScreener'];
+  const reasons: string[] = [];
+
+  const max = filter.maxBuySellRatio1h;
+  if (max !== null) {
+    const h1 = pair.txns?.h1;
+    if (!h1 || h1.buys + h1.sells === 0) reasons.push('Buy/sell 1h tidak ada data');
+    else if (h1.sells === 0) reasons.push(`Buy/sell 1h ${h1.buys} buy, 0 sell`);
+    else if (h1.buys / h1.sells > max) reasons.push(`Buy/sell 1h ${round2(h1.buys / h1.sells)} > ${max}`);
+  }
+
+  const minSocials = filter.minSocials;
+  if (minSocials !== null) {
+    const socials = pair.info?.socials?.length ?? 0;
+    if (socials < minSocials) reasons.push(`Socials ${socials} < ${minSocials}`);
+  }
+
+  const minLiq = filter.minLiqMcRatio;
+  if (minLiq !== null) {
+    const liq = pair.liquidity?.usd;
+    const mc = pair.marketCap ?? pair.fdv;
+    if (!liq || !mc) reasons.push('Liq/MC tidak ada data');
+    else if (liq / mc < minLiq) reasons.push(`Liq/MC ${round2(liq / mc)} < ${minLiq}`);
+  }
+  return reasons;
 }

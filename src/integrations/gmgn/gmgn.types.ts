@@ -154,6 +154,16 @@ export interface TokenInfo {
   /** Jumlah wallet KOL dan smart money yang memegang token. */
   kolCount: number | null;
   smartMoneyCount: number | null;
+  /**
+   * Bukan dari GMGN: transaksi 1 jam pair DexScreener (likuiditas terbesar), diisi scanner untuk token yang lolos filter GMGN.
+   * null = token belum ada di DexScreener atau request gagal; tidak ada di posisi yang dibeli sebelum field ini ada.
+   */
+  dexTxns1h?: { buys: number; sells: number } | null;
+  /**
+   * Transaksi buy/sell 1 jam dari GMGN (`bu`/`se`), dipakai sebagai fallback untuk posisi lama
+   * yang tidak punya data DexScreener.
+   */
+  gmgnTxns1h?: { buys: number; sells: number } | null;
 }
 
 /** Hasil satu panggilan hot_searches: response apa adanya (tanpa list token) dan token yang sudah dipetakan. */

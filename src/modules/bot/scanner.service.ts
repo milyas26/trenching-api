@@ -1,4 +1,6 @@
 import type { GmgnClient } from '../../integrations/gmgn/gmgn.client.ts';
+import type { DexscreenerClient } from '../../integrations/dexscreener/dexscreener.client.ts';
+import type { DexPair } from '../../integrations/dexscreener/dexscreener.types.ts';
 import type { IPositionsRepository } from '../positions/positions.interfaces.ts';
 import type { SettingsService } from '../settings/settings.service.ts';
 import type { LogsService } from '../logs/logs.service.ts';
@@ -8,7 +10,7 @@ import type { SnapshotsService } from '../snapshots/snapshots.service.ts';
 import type { BotSettings } from '../settings/settings.interfaces.ts';
 import { TOKEN_SOURCE_LABEL, type HotToken } from '../../integrations/gmgn/gmgn.types.ts';
 import type { BotState } from './bot.state.ts';
-import { applyTokenFilter } from './token-filter.ts';
+import { applyTokenFilter, dexFilterRejections, needsDexFilter } from './token-filter.ts';
 import { settingsForToken } from '../trading/og-rule.ts';
 
 /** Review AI per scan dibatasi supaya satu scan tidak berjalan terlalu lama (tiap review bisa ~1 menit). */
@@ -21,6 +23,7 @@ export class ScannerService {
   constructor(
     private readonly state: BotState,
     private readonly gmgn: GmgnClient,
+    private readonly dexscreener: DexscreenerClient,
     private readonly positions: IPositionsRepository,
     private readonly settings: SettingsService,
     private readonly trading: TradingService,
@@ -55,7 +58,8 @@ export class ScannerService {
       const settings = await this.settings.get(accountId);
       const scan = await this.gmgn.fetchTokens(settings.source, settings.filter);
       await this.snapshots.scan(accountId, settings.source, settings.filter, scan);
-      const { passed, rejected } = applyTokenFilter(scan.tokens, settings.tokenFilter);
+      const filtered = applyTokenFilter(scan.tokens, settings.tokenFilter);
+      const { passed, rejected } = await this.applyDexFilter(filtered, settings.tokenFilter, accountId);
       state.lastScanAt = new Date();
       state.lastScanError = null;
       state.lastScanSource = settings.source;
@@ -70,7 +74,7 @@ export class ScannerService {
       const active = await this.positions.countActive(accountId, settings.mode);
       const slots = Math.max(0, Math.min(settings.maxOpenPositions - active, settings.maxBuysPerScan));
       await log.info(
-        `Scan ${TOKEN_SOURCE_LABEL[settings.source]}: ${scan.tokens.length} token dari GMGN, ${passed.length} lolos Token Info, `
+        `Scan ${TOKEN_SOURCE_LABEL[settings.source]}: ${scan.tokens.length} token dari GMGN, ${passed.length} lolos filter, `
           + `${fresh.length} baru, slot buy ${slots}`,
       );
 
@@ -87,6 +91,35 @@ export class ScannerService {
     } finally {
       state.scanning = false;
     }
+  }
+
+  /**
+   * Pair DexScreener diambil untuk semua token yang lolos filter GMGN: transaksi 1 jamnya disimpan ke token.info
+   * (ikut tersimpan di posisi), lalu filter DexScreener dicek. Request gagal hanya menggagalkan scan kalau filternya aktif.
+   */
+  private async applyDexFilter(
+    { passed, rejected }: ReturnType<typeof applyTokenFilter>,
+    filter: BotSettings['tokenFilter'],
+    accountId: number,
+  ): Promise<ReturnType<typeof applyTokenFilter>> {
+    if (passed.length === 0) return { passed, rejected };
+    let pairs: Map<string, DexPair>;
+    try {
+      pairs = await this.dexscreener.getTopPairs(passed.map((t) => t.mint));
+    } catch (e) {
+      if (needsDexFilter(filter)) throw e;
+      await this.logs.for(accountId).warn(`Data DexScreener gagal diambil, rasio buy/sell tidak tersimpan: ${(e as Error).message}`);
+      return { passed, rejected };
+    }
+    const kept: HotToken[] = [];
+    for (const token of passed) {
+      const pair = pairs.get(token.mint);
+      token.info.dexTxns1h = pair?.txns?.h1 ?? null;
+      const reasons = dexFilterRejections(pair, filter);
+      if (reasons.length === 0) kept.push(token);
+      else rejected.set(token.mint, reasons);
+    }
+    return { passed: kept, rejected };
   }
 
   /** Token ditinjau AI satu per satu; hanya yang diputuskan buy yang dibeli, sampai slot habis. */
