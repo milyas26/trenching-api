@@ -146,6 +146,8 @@ export interface TokenInfo {
   rugPct: number | null;
   /** Tag OG GMGN: token paling awal dengan nama yang sama. */
   isOg: boolean | null;
+  /** Waktu token dibuat (unix detik); ikut tersimpan di posisi untuk umur token saat dibeli. */
+  createdAt: number | null;
   /** Jumlah transaksi jual dan swap 1 jam terakhir. */
   sells1h: number | null;
   swaps1h: number | null;
