@@ -75,6 +75,26 @@ export interface PositionHistoryPage {
   nextCursor: number | null;
 }
 
+export interface DailyPnlQuery {
+  accountId: number;
+  mode: TradeMode;
+  /** Zona waktu IANA app (mis. Asia/Jakarta), supaya batas hari sama dengan jam di HP. */
+  tz: string;
+  /** Rentang tanggal YYYY-MM-DD, keduanya inklusif. */
+  from: string;
+  to: string;
+}
+
+/** PnL posisi closed yang ditutup pada satu tanggal; hari tanpa posisi closed tidak muncul. */
+export interface DailyPnl {
+  /** YYYY-MM-DD di zona waktu query. */
+  date: string;
+  closed: number;
+  wins: number;
+  losses: number;
+  pnlSol: number;
+}
+
 export interface NewPosition {
   accountId: number;
   mode: TradeMode;
@@ -151,6 +171,8 @@ export interface IPositionsRepository {
   /** Posisi closed/failed, terbaru dulu, berhalaman lewat cursor id. */
   history(query: PositionHistoryQuery): Promise<Position[]>;
   historySummary(query: Omit<PositionHistoryQuery, 'cursor' | 'limit'>): Promise<HistorySummary>;
+  /** PnL closed per tanggal dalam rentang, urut tanggal. */
+  dailyPnl(query: DailyPnlQuery): Promise<DailyPnl[]>;
   /** Semua mint yang pernah dicoba buy oleh akun ini, paper maupun real, termasuk yang gagal. */
   boughtMints(accountId: number): Promise<Set<string>>;
   /** Tanpa mode = semua mode. */

@@ -22,7 +22,23 @@ const rangeQuery = z.object(Object.fromEntries(
 const flagQuery = z.object(Object.fromEntries(
   HISTORY_FLAG_KEYS.map((k) => [k, z.enum(['true', 'false']).transform((v) => v === 'true').optional()]),
 )) as z.ZodType<Partial<Record<(typeof HISTORY_FLAG_KEYS)[number], boolean>>>;
+const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Format tanggal YYYY-MM-DD');
+const dailyQuery = z.object({
+  mode: z.enum(['paper', 'real']),
+  tz: z.string().max(64).refine(isTimeZone, 'Zona waktu tidak dikenal').default('UTC'),
+  from: isoDate,
+  to: isoDate,
+}).refine((q) => q.from <= q.to, { message: 'harus sebelum atau sama dengan to', path: ['from'] });
 const idParams = z.object({ id: z.coerce.number().int().positive() });
+
+function isTimeZone(tz: string) {
+  try {
+    new Intl.DateTimeFormat('en', { timeZone: tz });
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 function parseRanges(query: unknown): HistoryRanges {
   const raw = rangeQuery.parse(query) as Record<string, number | undefined>;
@@ -50,6 +66,8 @@ export class PositionsController {
       ranges: parseRanges(req.query),
       flags: flagQuery.parse(req.query),
     });
+
+  daily = (req: FastifyRequest) => this.positions.daily({ accountId: accountIdOf(req), ...dailyQuery.parse(req.query) });
 
   buyReason = (req: FastifyRequest) => this.positions.buyReason(accountIdOf(req), idParams.parse(req.params).id);
 

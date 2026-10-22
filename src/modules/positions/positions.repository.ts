@@ -2,7 +2,7 @@ import { Prisma } from '../../generated/prisma/client.ts';
 import type { PrismaClient } from '../../lib/prisma.ts';
 import {
   ACTIVE_STATUSES, FINISHED_STATUSES, HISTORY_FLAG_KEYS, HISTORY_TOKEN_INFO_KEYS,
-  type BuyReasonDto, type ClosedPositionData, type HistoryRangeKey, type HistorySummary, type IPositionsRepository, type ListPositionsQuery,
+  type BuyReasonDto, type ClosedPositionData, type DailyPnl, type DailyPnlQuery, type HistoryRangeKey, type HistorySummary, type IPositionsRepository, type ListPositionsQuery,
   type ModeStats, type NewPosition, type OpenedPositionData, type Position, type PositionHistoryQuery, type TradeMode,
 } from './positions.interfaces.ts';
 
@@ -104,6 +104,24 @@ export class PositionsRepository implements IPositionsRepository {
       FROM positions WHERE ${Prisma.join(historyConditions(query), ' AND ')}
     `;
     return row!;
+  }
+
+  /** closed_at disimpan tanpa zona waktu (UTC), jadi dibaca sebagai UTC dulu sebelum diubah ke tz. */
+  dailyPnl({ accountId, mode, tz, from, to }: DailyPnlQuery) {
+    const day = Prisma.sql`((closed_at AT TIME ZONE 'UTC') AT TIME ZONE ${tz})::date`;
+    return this.db.$queryRaw<DailyPnl[]>`
+      SELECT
+        to_char(${day}, 'YYYY-MM-DD') AS date,
+        count(*)::int AS closed,
+        count(*) FILTER (WHERE pnl_sol > 0)::int AS wins,
+        count(*) FILTER (WHERE pnl_sol < 0)::int AS losses,
+        COALESCE(sum(pnl_sol), 0)::float8 AS "pnlSol"
+      FROM positions
+      WHERE account_id = ${accountId} AND mode::text = ${mode} AND status::text = 'closed' AND closed_at IS NOT NULL
+        AND ${day} BETWEEN ${from}::date AND ${to}::date
+      GROUP BY 1
+      ORDER BY 1
+    `;
   }
 
   async boughtMints(accountId: number) {

@@ -1,6 +1,6 @@
 import { notFound } from '../../common/errors.ts';
 import type {
-  BuyReasonDto, IPositionsRepository, ListPositionsQuery, PositionDto, PositionHistoryPage, PositionHistoryQuery, PositionStats,
+  BuyReasonDto, DailyPnl, DailyPnlQuery, IPositionsRepository, ListPositionsQuery, PositionDto, PositionHistoryPage, PositionHistoryQuery, PositionStats,
 } from './positions.interfaces.ts';
 import { toPositionDto } from './positions.mapper.ts';
 import type { BotSettings } from '../settings/settings.interfaces.ts';
@@ -20,6 +20,10 @@ export class PositionsService {
     ]);
     const items = rows.slice(0, query.limit).map(toPositionDto);
     return { summary, items, nextCursor: rows.length > query.limit ? (items.at(-1)?.id ?? null) : null };
+  }
+
+  async daily(query: DailyPnlQuery): Promise<{ days: DailyPnl[] }> {
+    return { days: await this.repo.dailyPnl(query) };
   }
 
   async buyReason(accountId: number, id: number): Promise<{ buy: BuyReasonDto | null }> {
