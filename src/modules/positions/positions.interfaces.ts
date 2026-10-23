@@ -83,6 +83,9 @@ export interface DailyPnlQuery {
   /** Rentang tanggal YYYY-MM-DD, keduanya inklusif. */
   from: string;
   to: string;
+  /** Filter yang sama dengan riwayat posisi. */
+  ranges: HistoryRanges;
+  flags: HistoryFlags;
 }
 
 /** PnL posisi closed yang ditutup pada satu tanggal; hari tanpa posisi closed tidak muncul. */

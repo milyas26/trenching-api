@@ -67,7 +67,13 @@ export class PositionsController {
       flags: flagQuery.parse(req.query),
     });
 
-  daily = (req: FastifyRequest) => this.positions.daily({ accountId: accountIdOf(req), ...dailyQuery.parse(req.query) });
+  daily = (req: FastifyRequest) =>
+    this.positions.daily({
+      accountId: accountIdOf(req),
+      ...dailyQuery.parse(req.query),
+      ranges: parseRanges(req.query),
+      flags: flagQuery.parse(req.query),
+    });
 
   buyReason = (req: FastifyRequest) => this.positions.buyReason(accountIdOf(req), idParams.parse(req.params).id);
 

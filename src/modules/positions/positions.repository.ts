@@ -107,7 +107,7 @@ export class PositionsRepository implements IPositionsRepository {
   }
 
   /** closed_at disimpan tanpa zona waktu (UTC), jadi dibaca sebagai UTC dulu sebelum diubah ke tz. */
-  dailyPnl({ accountId, mode, tz, from, to }: DailyPnlQuery) {
+  dailyPnl({ accountId, mode, tz, from, to, ranges, flags }: DailyPnlQuery) {
     const day = Prisma.sql`((closed_at AT TIME ZONE 'UTC') AT TIME ZONE ${tz})::date`;
     return this.db.$queryRaw<DailyPnl[]>`
       SELECT
@@ -117,7 +117,8 @@ export class PositionsRepository implements IPositionsRepository {
         count(*) FILTER (WHERE pnl_sol < 0)::int AS losses,
         COALESCE(sum(pnl_sol), 0)::float8 AS "pnlSol"
       FROM positions
-      WHERE account_id = ${accountId} AND mode::text = ${mode} AND status::text = 'closed' AND closed_at IS NOT NULL
+      WHERE ${Prisma.join(historyConditions({ accountId, mode, ranges, flags }), ' AND ')}
+        AND status::text = 'closed' AND closed_at IS NOT NULL
         AND ${day} BETWEEN ${from}::date AND ${to}::date
       GROUP BY 1
       ORDER BY 1
