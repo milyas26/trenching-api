@@ -18,10 +18,8 @@ const MIN_PRICE_SAMPLES = 3;
 const REVIEW_COOLDOWN_MS = 30 * 60_000;
 /** Review terakhir yang disimpan di memori untuk ditampilkan di app. */
 const KEEP_REVIEWS = 10;
-/** Keputusan BUY satu akun boleh dipakai akun lain selama ini, asal harga belum keluar dari rentang di bawah. */
+/** Keputusan BUY satu akun boleh dipakai akun lain selama ini, asal harga masih dalam rentang di pengaturan akun itu. */
 const SHARED_REVIEW_TTL_MS = 5 * 60_000;
-const SHARED_MAX_DROP_PCT = 20;
-const SHARED_MAX_RISE_PCT = 40;
 
 const SYSTEM_PROMPT = `Kamu analis token memecoin Solana untuk bot auto-trade. Tugasmu memutuskan apakah token layak dibeli SEKARANG.
 
@@ -134,8 +132,8 @@ export class AgentService {
 
     const changePct = ((price - entry.priceUsd) / entry.priceUsd) * 100;
     const base = { fromAccountId: entry.accountId, changePct };
-    if (changePct < -SHARED_MAX_DROP_PCT) return { ...base, decision: null, why: `turun lebih dari ${SHARED_MAX_DROP_PCT}%` };
-    if (changePct > SHARED_MAX_RISE_PCT) return { ...base, decision: null, why: `naik lebih dari ${SHARED_MAX_RISE_PCT}%` };
+    if (changePct < -settings.reuseMaxDropPct) return { ...base, decision: null, why: `turun lebih dari ${settings.reuseMaxDropPct}%` };
+    if (changePct > settings.reuseMaxRisePct) return { ...base, decision: null, why: `naik lebih dari ${settings.reuseMaxRisePct}%` };
     // Gate kenaikan recheck milik akun ini tetap berlaku pada sampel harga analisa asal.
     const gain = entry.decision.evidence.recheckGainPct;
     if (settings.minRecheckGainPct > 0 && (gain ?? 0) < settings.minRecheckGainPct) {
