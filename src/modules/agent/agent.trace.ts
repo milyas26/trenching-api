@@ -121,6 +121,10 @@ export class ReviewTrace {
     this.push(meta.kind, meta.title, detail, failed);
   }
 
+  reused(message: string) {
+    this.push('note', 'Analisa dipakai ulang', message, false);
+  }
+
   decisionRejected(message: string) {
     this.push('decision', 'Buy ditolak sistem', message, true);
   }

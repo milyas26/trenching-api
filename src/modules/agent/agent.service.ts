@@ -18,6 +18,10 @@ const MIN_PRICE_SAMPLES = 3;
 const REVIEW_COOLDOWN_MS = 30 * 60_000;
 /** Review terakhir yang disimpan di memori untuk ditampilkan di app. */
 const KEEP_REVIEWS = 10;
+/** Keputusan BUY satu akun boleh dipakai akun lain selama ini, asal harga belum keluar dari rentang di bawah. */
+const SHARED_REVIEW_TTL_MS = 5 * 60_000;
+const SHARED_MAX_DROP_PCT = 20;
+const SHARED_MAX_RISE_PCT = 40;
 
 const SYSTEM_PROMPT = `Kamu analis token memecoin Solana untuk bot auto-trade. Tugasmu memutuskan apakah token layak dibeli SEKARANG.
 
@@ -46,11 +50,29 @@ Kalau ragu, skip. Modal lebih penting daripada peluang yang terlewat.`;
 
 const shortMint = (mint: string) => `${mint.slice(0, 4)}…${mint.slice(-4)}`;
 
+interface SharedReview {
+  accountId: number;
+  decision: ReviewedDecision;
+  /** Harga terakhir yang dilihat agent sebelum memutuskan buy. */
+  priceUsd: number;
+  at: number;
+}
+
+/** Hasil cek analisa akun lain: decision null = harga sudah keluar rentang atau syarat akun ini tidak terpenuhi. */
+export interface SharedReviewCheck {
+  fromAccountId: number;
+  changePct: number;
+  decision: ReviewedDecision | null;
+  why: string;
+}
+
 /** Agent DeepSeek yang meninjau satu token lewat beberapa putaran tool call sebelum bot buy. */
 export class AgentService {
   /** "akun:mint" -> waktu (ms) token boleh ditinjau lagi oleh akun itu */
   private readonly cooldown = new Map<string, number>();
   private readonly reviews = new Map<number, AgentReview[]>();
+  /** mint -> BUY terbaru dari akun mana pun */
+  private readonly shared = new Map<string, SharedReview>();
 
   constructor(
     private readonly deepseek: DeepseekClient,
@@ -79,20 +101,64 @@ export class AgentService {
   }
 
   async review(accountId: number, token: HotToken, settings: BotSettings): Promise<ReviewedDecision> {
+    const trace = this.startTrace(accountId, token);
+    const inspector = new TokenInspector(token.mint, token.safety, token.signals, this.dexscreener, this.gecko, this.prices);
+    try {
+      const decision = await this.loop(`${accountId}:${token.mint}`, token, settings, trace, inspector);
+      trace.finish(decision);
+      const reviewed = { ...decision, evidence: await evidenceOf(inspector) };
+      const priceUsd = inspector.samples.at(-1)?.priceUsd ?? token.price;
+      if (reviewed.decision === 'buy' && priceUsd) {
+        this.shared.set(token.mint, { accountId, decision: reviewed, priceUsd, at: Date.now() });
+      }
+      return reviewed;
+    } catch (e) {
+      trace.fail((e as Error).message);
+      throw e;
+    }
+  }
+
+  /**
+   * BUY akun lain untuk token ini dalam 5 menit terakhir, dicek terhadap harga sekarang.
+   * null = tidak ada analisa yang bisa dipakai (atau harga gagal diambil), review seperti biasa.
+   */
+  async sharedReview(accountId: number, token: HotToken, settings: BotSettings): Promise<SharedReviewCheck | null> {
+    const entry = this.shared.get(token.mint);
+    if (!entry || entry.accountId === accountId) return null;
+    if (Date.now() - entry.at > SHARED_REVIEW_TTL_MS) {
+      this.shared.delete(token.mint);
+      return null;
+    }
+    const price = await this.prices.getPrice(token.mint).catch(() => null);
+    if (!price) return null;
+
+    const changePct = ((price - entry.priceUsd) / entry.priceUsd) * 100;
+    const base = { fromAccountId: entry.accountId, changePct };
+    if (changePct < -SHARED_MAX_DROP_PCT) return { ...base, decision: null, why: `turun lebih dari ${SHARED_MAX_DROP_PCT}%` };
+    if (changePct > SHARED_MAX_RISE_PCT) return { ...base, decision: null, why: `naik lebih dari ${SHARED_MAX_RISE_PCT}%` };
+    // Gate kenaikan recheck milik akun ini tetap berlaku pada sampel harga analisa asal.
+    const gain = entry.decision.evidence.recheckGainPct;
+    if (settings.minRecheckGainPct > 0 && (gain ?? 0) < settings.minRecheckGainPct) {
+      return { ...base, decision: null, why: `kenaikan recheck ${(gain ?? 0).toFixed(1)}% < ${settings.minRecheckGainPct}%` };
+    }
+
+    const decision = {
+      ...entry.decision,
+      reason: `Analisa akun #${entry.accountId} (${Math.round((Date.now() - entry.at) / 1000)} dtk lalu, harga ${pct(changePct)}): ${entry.decision.reason}`,
+    };
+    const trace = this.startTrace(accountId, token);
+    trace.reused(`Dari akun #${entry.accountId}, harga ${pct(changePct)} sejak analisa`);
+    trace.finish(this.finish(`${accountId}:${token.mint}`, decision));
+    return { ...base, decision, why: '' };
+  }
+
+  private startTrace(accountId: number, token: HotToken): ReviewTrace {
     const trace = new ReviewTrace(token, MAX_STEPS);
     const reviews = this.reviews.get(accountId) ?? [];
     reviews.unshift(trace.review);
     reviews.splice(KEEP_REVIEWS);
     this.reviews.set(accountId, reviews);
-    const inspector = new TokenInspector(token.mint, token.safety, token.signals, this.dexscreener, this.gecko, this.prices);
-    try {
-      const decision = await this.loop(`${accountId}:${token.mint}`, token, settings, trace, inspector);
-      trace.finish(decision);
-      return { ...decision, evidence: await evidenceOf(inspector) };
-    } catch (e) {
-      trace.fail((e as Error).message);
-      throw e;
-    }
+    return trace;
   }
 
   private async loop(cooldownKey: string, token: HotToken, settings: BotSettings, trace: ReviewTrace, inspector: TokenInspector): Promise<AgentDecision> {
@@ -154,7 +220,7 @@ export class AgentService {
     return this.finish(cooldownKey, { decision: 'skip', confidence: 0, reason: `tidak ada keputusan dalam ${MAX_STEPS} langkah`, steps: MAX_STEPS });
   }
 
-  private finish(cooldownKey: string, decision: AgentDecision): AgentDecision {
+  private finish<D extends AgentDecision>(cooldownKey: string, decision: D): D {
     this.cooldown.set(cooldownKey, Date.now() + REVIEW_COOLDOWN_MS);
     return decision;
   }
@@ -200,6 +266,8 @@ async function evidenceOf(inspector: TokenInspector): Promise<ReviewEvidence> {
     recheckGainPct: inspector.samples.length >= 2 ? priceGainPct(inspector) : null,
   };
 }
+
+const pct = (v: number) => `${v > 0 ? '+' : ''}${v.toFixed(1)}%`;
 
 function parseDecision(call: ToolCall): Omit<AgentDecision, 'steps'> | null {
   const args = safeJson(call.function.arguments) as { decision?: string; confidence?: number; reason?: string } | null;

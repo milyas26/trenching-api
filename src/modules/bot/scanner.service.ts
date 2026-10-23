@@ -134,22 +134,26 @@ export class ScannerService {
     let bought = 0;
     let reviewed = 0;
     for (const token of tokens) {
-      if (bought >= slots || reviewed >= MAX_REVIEWS_PER_SCAN) break;
+      if (bought >= slots) break;
       if (this.agent.recentlyReviewed(accountId, token.mint)) continue;
-      reviewed++;
 
       const label = token.symbol ?? shortMint(token.mint);
       let settings: BotSettings = await this.settings.get(accountId);
-      try {
-        // AI menilai peluang mencapai TP yang benar-benar dipakai (TP khusus kalau token OG).
-        const d = await this.agent.review(accountId, token, settingsForToken(token, settings));
-        await this.snapshots.reviewed(accountId, token, settings.mode, d);
-        await log.info(`AI ${d.decision.toUpperCase()} ${label} (${d.confidence}%, ${d.steps} langkah): ${d.reason}`);
-        if (d.decision !== 'buy') continue;
-      } catch (e) {
-        await this.snapshots.failed(accountId, token, settings.mode, (e as Error).message);
-        await log.error(`AI review ${label} gagal, token dilewati: ${(e as Error).message}`);
-        continue;
+      const shared = settings.reuseRecentReview ? await this.reuseReview(accountId, token, settings, label) : false;
+      if (!shared) {
+        if (reviewed >= MAX_REVIEWS_PER_SCAN) continue;
+        reviewed++;
+        try {
+          // AI menilai peluang mencapai TP yang benar-benar dipakai (TP khusus kalau token OG).
+          const d = await this.agent.review(accountId, token, settingsForToken(token, settings));
+          await this.snapshots.reviewed(accountId, token, settings.mode, d);
+          await log.info(`AI ${d.decision.toUpperCase()} ${label} (${d.confidence}%, ${d.steps} langkah): ${d.reason}`);
+          if (d.decision !== 'buy') continue;
+        } catch (e) {
+          await this.snapshots.failed(accountId, token, settings.mode, (e as Error).message);
+          await log.error(`AI review ${label} gagal, token dilewati: ${(e as Error).message}`);
+          continue;
+        }
       }
 
       // Review makan waktu; bot bisa sudah di-stop, setting berubah, atau akun dihapus selama itu.
@@ -159,5 +163,20 @@ export class ScannerService {
       if (!(await this.trading.open(accountId, token, settings))) return;
       bought++;
     }
+  }
+
+  /** true kalau BUY akun lain dipakai ulang untuk token ini; false = token perlu direview AI sendiri. */
+  private async reuseReview(accountId: number, token: HotToken, settings: BotSettings, label: string): Promise<boolean> {
+    const check = await this.agent.sharedReview(accountId, token, settings);
+    if (!check) return false;
+    const log = this.logs.for(accountId);
+    const change = `${check.changePct > 0 ? '+' : ''}${check.changePct.toFixed(1)}%`;
+    if (!check.decision) {
+      await log.info(`Analisa akun #${check.fromAccountId} untuk ${label} tidak dipakai (harga ${change}, ${check.why}), review ulang`);
+      return false;
+    }
+    await this.snapshots.reviewed(accountId, token, settings.mode, check.decision);
+    await log.info(`AI BUY ${label} (${check.decision.confidence}%, tanpa review): ${check.decision.reason}`);
+    return true;
   }
 }

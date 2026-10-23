@@ -86,6 +86,11 @@ export const botSettingsSchema = z.object({
   aiAgentEnabled: z.boolean().default(true),
   /** 0 = mati. Buy dari AI ditolak kalau harga naik kurang dari X% antara sampel pertama dan recheck terakhir. */
   minRecheckGainPct: z.coerce.number().min(0).default(10),
+  /**
+   * Token yang di-BUY AI untuk akun lain kurang dari 5 menit lalu langsung dibeli dengan analisa itu,
+   * selama harganya sekarang masih -20% s/d +40% dari harga saat analisa. false = selalu review sendiri.
+   */
+  reuseRecentReview: z.boolean().default(false),
 
   paperStartBalanceSol: z.coerce.number().min(0).default(10),
 
