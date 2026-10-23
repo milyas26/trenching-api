@@ -18,8 +18,11 @@ const MIN_PRICE_SAMPLES = 3;
 const REVIEW_COOLDOWN_MS = 30 * 60_000;
 /** Review terakhir yang disimpan di memori untuk ditampilkan di app. */
 const KEEP_REVIEWS = 10;
-/** Keputusan BUY satu akun boleh dipakai akun lain selama ini, asal harga masih dalam rentang di pengaturan akun itu. */
-const SHARED_REVIEW_TTL_MS = 5 * 60_000;
+/**
+ * Umur BUY akun lain yang boleh dipakai ulang diatur per akun pemakai (reuseMaxAgeMinutes, maks 24 jam),
+ * jadi entri disimpan selama batas maksimal itu lalu dibuang.
+ */
+const SHARED_REVIEW_KEEP_MS = 24 * 60 * 60_000;
 
 const SYSTEM_PROMPT = `Kamu analis token memecoin Solana untuk bot auto-trade. Tugasmu memutuskan apakah token layak dibeli SEKARANG.
 
@@ -107,6 +110,7 @@ export class AgentService {
       const reviewed = { ...decision, evidence: await evidenceOf(inspector) };
       const priceUsd = inspector.samples.at(-1)?.priceUsd ?? token.price;
       if (reviewed.decision === 'buy' && priceUsd) {
+        this.pruneShared();
         this.shared.set(token.mint, { accountId, decision: reviewed, priceUsd, at: Date.now() });
       }
       return reviewed;
@@ -117,16 +121,13 @@ export class AgentService {
   }
 
   /**
-   * BUY akun lain untuk token ini dalam 5 menit terakhir, dicek terhadap harga sekarang.
+   * BUY akun lain untuk token ini dalam reuseMaxAgeMinutes terakhir, dicek terhadap harga sekarang.
    * null = tidak ada analisa yang bisa dipakai (atau harga gagal diambil), review seperti biasa.
    */
   async sharedReview(accountId: number, token: HotToken, settings: BotSettings): Promise<SharedReviewCheck | null> {
     const entry = this.shared.get(token.mint);
     if (!entry || entry.accountId === accountId) return null;
-    if (Date.now() - entry.at > SHARED_REVIEW_TTL_MS) {
-      this.shared.delete(token.mint);
-      return null;
-    }
+    if (Date.now() - entry.at > settings.reuseMaxAgeMinutes * 60_000) return null;
     const price = await this.prices.getPrice(token.mint).catch(() => null);
     if (!price) return null;
 
@@ -148,6 +149,11 @@ export class AgentService {
     trace.reused(`Dari akun #${entry.accountId}, harga ${pct(changePct)} sejak analisa`);
     trace.finish(this.finish(`${accountId}:${token.mint}`, decision));
     return { ...base, decision, why: '' };
+  }
+
+  private pruneShared() {
+    const cutoff = Date.now() - SHARED_REVIEW_KEEP_MS;
+    for (const [mint, entry] of this.shared) if (entry.at < cutoff) this.shared.delete(mint);
   }
 
   private startTrace(accountId: number, token: HotToken): ReviewTrace {
