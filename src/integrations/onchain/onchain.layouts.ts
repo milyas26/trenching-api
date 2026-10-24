@@ -12,11 +12,14 @@ export function bondingCurveAddress(mint: string): string {
   return findProgramAddress([Buffer.from('bonding-curve'), base58Decode(mint)], PUMP_PROGRAM);
 }
 
-/** Pool PumpSwap kanonik hasil migrasi pump.fun: creator = PDA pool-authority, index 0, quote WSOL. */
-export function pumpSwapPoolAddress(mint: string): string {
+/**
+ * Pool PumpSwap kanonik hasil migrasi pump.fun: creator = PDA pool-authority, index 0, quote = quote curve-nya
+ * (WSOL untuk curve biasa, mis. PSOL untuk curve yang di-quote token lain).
+ */
+export function pumpSwapPoolAddress(mint: string, quoteMint = WSOL_MINT): string {
   const authority = findProgramAddress([Buffer.from('pool-authority'), base58Decode(mint)], PUMP_PROGRAM);
   return findProgramAddress(
-    [Buffer.from('pool'), Buffer.alloc(2), base58Decode(authority), base58Decode(mint), base58Decode(WSOL_MINT)],
+    [Buffer.from('pool'), Buffer.alloc(2), base58Decode(authority), base58Decode(mint), base58Decode(quoteMint)],
     PUMP_AMM_PROGRAM,
   );
 }
@@ -42,6 +45,7 @@ export function decodeBondingCurve(data: Buffer) {
     virtualSolReserves: data.readBigUInt64LE(16),
     complete: data.readUInt8(48) === 1,
     quotedInSol: !quote || quote.every((b) => b === 0),
+    quoteMint: !quote || quote.every((b) => b === 0) ? WSOL_MINT : readPubkey(data, 83),
   };
 }
 
@@ -84,8 +88,10 @@ export function decodePythPrice(data: Buffer) {
   return { price: Number(price) * 10 ** exponent, publishTime };
 }
 
-/** Harga spot dalam SOL per 1 token (sudah memperhitungkan desimal). */
-export function spotPriceSol(solReserve: bigint, tokenReserve: bigint, tokenDecimals: number): number | null {
+/** Harga spot dalam token quote (default SOL) per 1 token, sudah memperhitungkan desimal keduanya. */
+export function spotPriceSol(
+  solReserve: bigint, tokenReserve: bigint, tokenDecimals: number, quoteDecimals = SOL_DECIMALS,
+): number | null {
   if (solReserve <= 0n || tokenReserve <= 0n) return null;
-  return (Number(solReserve) / 10 ** SOL_DECIMALS) / (Number(tokenReserve) / 10 ** tokenDecimals);
+  return (Number(solReserve) / 10 ** quoteDecimals) / (Number(tokenReserve) / 10 ** tokenDecimals);
 }

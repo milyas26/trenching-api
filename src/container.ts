@@ -80,7 +80,7 @@ export function createContainer() {
       settings: new SettingsController(settings, accounts, logs, scheduler),
       logs: new LogsController(logs),
       prices: new PricesController(livePrices),
-      positions: new PositionsController(positions, trading),
+      positions: new PositionsController(positions, trading, monitor),
       bot: new BotController(bot),
       agent: new AgentController(agent),
     },

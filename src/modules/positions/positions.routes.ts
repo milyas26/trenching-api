@@ -7,4 +7,5 @@ export const positionsRoutes = (c: PositionsController): FastifyPluginAsync => a
   app.get('/positions/daily', c.daily);
   app.get('/positions/:id/buy-reason', c.buyReason);
   app.post('/positions/:id/close', c.close);
+  app.post('/positions/:id/refresh-price', c.refreshPrice);
 };

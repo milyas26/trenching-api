@@ -1,6 +1,6 @@
 import type { PriceSource, TokenQuote } from '../../integrations/dexscreener/dexscreener.types.ts';
 import type { OnchainPriceStream } from '../../integrations/onchain/onchain-price.stream.ts';
-import type { IPositionsRepository, Position } from '../positions/positions.interfaces.ts';
+import type { ExitReason, IPositionsRepository, Position } from '../positions/positions.interfaces.ts';
 import type { SettingsService } from '../settings/settings.service.ts';
 import type { BotSettings } from '../settings/settings.interfaces.ts';
 import type { LogsService } from '../logs/logs.service.ts';
@@ -9,6 +9,7 @@ import type { PricesService } from '../prices/prices.service.ts';
 import { toPositionDto } from '../positions/positions.mapper.ts';
 import { evaluateExit, pnlPct } from '../trading/exit-rules.ts';
 import type { BotState } from './bot.state.ts';
+import { badRequest, conflict, notFound } from '../../common/errors.ts';
 
 /** Harga dari stream bisa datang beberapa kali per detik; DB cukup ditulis sekali per detik per posisi. */
 const STREAM_WRITE_MS = 1_000;
@@ -59,17 +60,25 @@ export class MonitorService {
       void this.stream.watch(open.map((p) => p.mint)).catch(() => {});
       if (open.length === 0) return;
 
-      const quotes = await this.prices.getQuotes(open.map((p) => p.mint));
-      this.state.price.lastPriceAt = new Date();
-      this.state.price.lastPriceError = null;
+      let quotes = new Map<string, TokenQuote>();
+      try {
+        quotes = await this.prices.getQuotes(open.map((p) => p.mint));
+        this.state.price.lastPriceAt = new Date();
+        this.state.price.lastPriceError = null;
+      } catch (e) {
+        // Lanjut tanpa harga: batas hold tetap dicek di bawah.
+        this.state.price.lastPriceError = (e as Error).message;
+        await this.logs.system.error(`Cek harga gagal: ${this.state.price.lastPriceError}`);
+      }
 
       for (const pos of this.open.values()) {
+        const settings = await this.settings.get(pos.accountId);
         const price = quotes.get(pos.mint)?.priceUsd;
-        if (price) await this.apply(pos, price, await this.settings.get(pos.accountId), false);
+        if (price) await this.apply(pos, price, settings, false);
+        else await this.expireUnpriced(pos, settings);
       }
     } catch (e) {
-      this.state.price.lastPriceError = (e as Error).message;
-      await this.logs.system.error(`Cek harga gagal: ${this.state.price.lastPriceError}`);
+      await this.logs.system.error(`Monitor posisi gagal: ${(e as Error).message}`);
     } finally {
       this.busy = false;
     }
@@ -84,6 +93,36 @@ export class MonitorService {
     } catch (e) {
       this.state.price.lastPriceError = (e as Error).message;
     }
+  }
+
+  /**
+   * Cek harga satu posisi open sekarang juga, untuk saat stream dan polling tidak menggerakkan harganya.
+   * Aturan exit ikut dievaluasi, jadi posisi bisa langsung ditutup. ignored = harga melompat ekstrem dan
+   * menunggu konfirmasi tick berikutnya.
+   */
+  async refresh(accountId: number, id: number) {
+    const row = await this.positions.findForAccount(id, accountId);
+    if (!row) throw notFound('Posisi tidak ditemukan');
+    if (row.status !== 'open') throw conflict('Posisi tidak sedang open');
+    // Bot mati atau posisi belum dimuat run(): pakai baris DB, run() berikutnya menyamakan lagi.
+    let pos = this.open.get(id);
+    if (!pos) {
+      pos = row;
+      this.open.set(id, row);
+    }
+
+    const quote = (await this.prices.getQuotes([pos.mint])).get(pos.mint);
+    if (!quote) throw badRequest('Harga token tidak ditemukan di semua sumber');
+    this.state.price.lastPriceAt = new Date();
+    await this.apply(pos, quote.priceUsd, await this.settings.get(accountId), false);
+
+    const after = await this.positions.findForAccount(id, accountId);
+    return {
+      priceUsd: quote.priceUsd,
+      source: quote.source,
+      ignored: this.suspect.get(id) === quote.priceUsd,
+      status: after?.status ?? row.status,
+    };
   }
 
   /** false = harga melompat ekstrem dan belum dikonfirmasi tick berikutnya; tick ini diabaikan. */
@@ -152,8 +191,27 @@ export class MonitorService {
       this.lastWrite.set(pos.id, now);
       await this.positions.updatePrice(pos.id, price, highPrice, lowPrice, pnl);
     }
-    if (!reason || this.closing.has(pos.id)) return;
-    if (now < (this.sellRetry.get(pos.id)?.at ?? 0)) return;
+    if (reason) await this.exit(pos, reason, price);
+  }
+
+  /**
+   * Tanpa harga dari semua sumber, TP/SL/trailing tidak bisa dicek. Batas hold tetap ditegakkan supaya
+   * posisi tidak tertahan selamanya; harga exit memakai harga terakhir yang diketahui.
+   */
+  private async expireUnpriced(pos: Position, settings: BotSettings) {
+    if (!pos.entryPrice || this.closing.has(pos.id) || this.open.get(pos.id) !== pos) return;
+    if (settings.maxHoldMinutes <= 0 || Date.now() - pos.openedAt.getTime() < settings.maxHoldMinutes * 60_000) return;
+    if (!this.sellRetry.has(pos.id)) {
+      await this.logs.for(pos.accountId).warn(
+        `Harga ${pos.symbol ?? pos.mint.slice(0, 4)} tidak tersedia, posisi ditutup karena batas hold ${settings.maxHoldMinutes} mnt`,
+      );
+    }
+    await this.exit(pos, 'max_hold');
+  }
+
+  private async exit(pos: Position, reason: ExitReason, price?: number) {
+    if (this.closing.has(pos.id)) return;
+    if (Date.now() < (this.sellRetry.get(pos.id)?.at ?? 0)) return;
 
     this.closing.add(pos.id);
     this.open.delete(pos.id);

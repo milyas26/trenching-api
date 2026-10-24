@@ -4,6 +4,7 @@ import { accountIdOf } from '../../common/account.ts';
 import { HISTORY_FLAG_KEYS, HISTORY_RANGE_KEYS, type HistoryRanges } from './positions.interfaces.ts';
 import type { PositionsService } from './positions.service.ts';
 import type { TradingService } from '../trading/trading.service.ts';
+import type { MonitorService } from '../bot/monitor.service.ts';
 
 const listQuery = z.object({
   view: z.enum(['open', 'closed']).optional(),
@@ -55,6 +56,7 @@ export class PositionsController {
   constructor(
     private readonly positions: PositionsService,
     private readonly trading: TradingService,
+    private readonly monitor: MonitorService,
   ) {}
 
   list = (req: FastifyRequest) => this.positions.list({ accountId: accountIdOf(req), ...listQuery.parse(req.query) });
@@ -82,4 +84,6 @@ export class PositionsController {
     await this.trading.close(id, 'manual');
     return { ok: true };
   };
+
+  refreshPrice = (req: FastifyRequest) => this.monitor.refresh(accountIdOf(req), idParams.parse(req.params).id);
 }
