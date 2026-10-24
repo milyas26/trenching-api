@@ -32,6 +32,11 @@ export const tokenFilterSchema = z.object({
   maxBotDegenPct: nullablePct.default(null),
   /** "Rug %" GMGN: perkiraan peluang token di-rug. */
   maxRugPct: nullablePct.default(null),
+  /**
+   * Batas atas perubahan harga 1 jam terakhir (`pcp1h` GMGN). Analisa 7 hari: <= 500% menaikkan win rate
+   * di dua akun (trending-ai 68% -> 83%, set-final 50% -> 75%). Bisa ribuan persen, jadi bukan nullablePct.
+   */
+  maxPc1hPct: nullableNumber.default(null),
   maxSmartMoney: z.coerce.number().int().min(0).nullable().default(null),
   /** Hanya token bertag OG di GMGN. */
   ogOnly: z.boolean().default(false),

@@ -151,6 +151,11 @@ export interface TokenInfo {
   /** Jumlah transaksi jual dan swap 1 jam terakhir. */
   sells1h: number | null;
   swaps1h: number | null;
+  /**
+   * Perubahan harga 1 jam terakhir dalam persen (field mentah `pcp1h`). Bisa ribuan persen untuk token baru,
+   * jadi tidak dibatasi 100 seperti field rasio.
+   */
+  change1hPct: number | null;
   /** Jumlah wallet KOL dan smart money yang memegang token. */
   kolCount: number | null;
   smartMoneyCount: number | null;

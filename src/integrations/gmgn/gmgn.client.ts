@@ -103,6 +103,7 @@ function toHotToken(t: RawHotToken): HotToken {
       createdAt: t.ct ?? null,
       sells1h: t.se ?? null,
       swaps1h: t.sw ?? null,
+      change1hPct: t.pcp1h ?? null,
       kolCount: t.kol ?? null,
       smartMoneyCount: t.smt ?? null,
     },

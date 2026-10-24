@@ -18,7 +18,7 @@ export interface ListPositionsQuery {
 /** Field angka Token Info (JSON token_info) yang bisa disaring di riwayat. */
 export const HISTORY_TOKEN_INFO_KEYS = [
   'top10Pct', 'devHoldPct', 'insiderPct', 'bundlerPct', 'phishingPct', 'sniperPct',
-  'botDegenCount', 'botDegenPct', 'rugPct', 'swaps1h', 'sells1h', 'smartMoneyCount', 'kolCount',
+  'botDegenCount', 'botDegenPct', 'rugPct', 'change1hPct', 'swaps1h', 'sells1h', 'smartMoneyCount', 'kolCount',
 ] as const;
 
 /**
