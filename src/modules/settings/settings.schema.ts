@@ -67,7 +67,10 @@ export const botSettingsSchema = z.object({
   botEnabled: z.boolean().default(false),
   mode: z.enum(['paper', 'real']).default('paper'),
 
+  /** sol = buyAmountSol tetap; pct = buyAmountPct % dari saldo tersedia (paper: saldo simulasi, real: saldo wallet setelah fee). */
+  buySizeMode: z.enum(['sol', 'pct']).default('sol'),
   buyAmountSol: z.coerce.number().positive().default(0.05),
+  buyAmountPct: z.coerce.number().gt(0).max(100).default(10),
   takeProfitPct: z.coerce.number().positive().default(50),
   stopLossPct: z.coerce.number().gt(0).lt(100).default(20),
   /** 0 = mati. Close paksa saat market cap turun ke X ribu USD, walau stop loss % belum kena. */

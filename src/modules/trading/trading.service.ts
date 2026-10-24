@@ -18,6 +18,10 @@ export const MAX_PRICE_DEVIATION = 3;
 export const priceDeviates = (quotePrice: number, gmgnPrice: number) =>
   Math.max(quotePrice / gmgnPrice, gmgnPrice / quotePrice) > MAX_PRICE_DEVIATION;
 
+/** Ukuran buy dalam SOL. Mode pct dibulatkan ke bawah 4 desimal supaya tidak melebihi saldo. */
+export const buyAmount = (s: BotSettings, availableSol: number) =>
+  s.buySizeMode === 'pct' ? Math.floor(availableSol * s.buyAmountPct * 100) / 1e4 : s.buyAmountSol;
+
 /** Buka/tutup posisi. Satu-satunya tempat yang memanggil executor (paper/real). */
 export class TradingService {
   private readonly executors: Record<TradeMode, TradeExecutor>;
@@ -40,22 +44,23 @@ export class TradingService {
 
   /** @returns false kalau saldo tidak cukup, supaya pemanggil berhenti mencoba token lain. */
   async open(accountId: number, token: BuyCandidate, settings: BotSettings): Promise<boolean> {
-    const { mode, buyAmountSol: amountSol } = settings;
+    const { mode } = settings;
     const label = `${token.symbol ?? shortMint(token.mint)} [${mode}]`;
     const log = this.logs.for(accountId);
 
-    if (mode === 'paper' && (await this.positions.paperBalance(accountId, settings)) < amountSol) {
-      await log.warn(`Saldo paper tidak cukup untuk buy ${label}`);
-      return false;
-    }
     const ctx = await this.context(accountId, settings);
     // Cek sebelum claim: kalau tidak, token ini tercatat failed dan tidak akan pernah dibeli lagi.
-    const maxBuy = await this.executors[mode].maxBuySol(ctx).catch(async (e: Error) => {
-      await log.error(`Cek saldo wallet gagal, buy ${label} dilewati: ${e.message}`);
-      return 0;
-    });
-    if (maxBuy !== null && maxBuy < amountSol) {
-      await log.warn(`Saldo wallet tidak cukup untuk buy ${label}: maks ${maxBuy.toFixed(4)} SOL setelah fee`);
+    const available = mode === 'paper'
+      ? await this.positions.paperBalance(accountId, settings)
+      : ((await this.executors[mode].maxBuySol(ctx).catch(async (e: Error) => {
+          await log.error(`Cek saldo wallet gagal, buy ${label} dilewati: ${e.message}`);
+          return 0;
+        })) ?? 0);
+    const amountSol = buyAmount(settings, available);
+    if (amountSol <= 0 || available < amountSol) {
+      await log.warn(mode === 'paper'
+        ? `Saldo paper tidak cukup untuk buy ${label}: tersedia ${available.toFixed(4)} SOL`
+        : `Saldo wallet tidak cukup untuk buy ${label}: maks ${available.toFixed(4)} SOL setelah fee`);
       return false;
     }
 
@@ -91,7 +96,7 @@ export class TradingService {
 
       await this.repo.markOpen(id, { entryPrice: entry, supply, buySignature: signature });
       await log.buy(
-        `BUY ${label} ${amountSol} SOL @ $${entry}${ogTp === null ? '' : ` | token OG, TP ${ogTp}%`}${signature ? ` sig ${signature}` : ''}`,
+        `BUY ${label} ${amountSol} SOL${settings.buySizeMode === 'pct' ? ` (${settings.buyAmountPct}% saldo)` : ''} @ $${entry}${ogTp === null ? '' : ` | token OG, TP ${ogTp}%`}${signature ? ` sig ${signature}` : ''}`,
       );
     } catch (e) {
       const message = (e as Error).message;

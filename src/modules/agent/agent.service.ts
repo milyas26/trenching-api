@@ -320,7 +320,7 @@ function describe(t: HotToken) {
 
 function strategyOf(s: BotSettings) {
   return {
-    buyAmountSol: s.buyAmountSol,
+    ...(s.buySizeMode === 'pct' ? { buyAmountPctOfBalance: s.buyAmountPct } : { buyAmountSol: s.buyAmountSol }),
     takeProfitPct: s.takeProfitPct,
     stopLossPct: s.stopLossPct,
     trailingStopPct: s.trailingStopPct || null,
