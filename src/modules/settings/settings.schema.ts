@@ -37,6 +37,7 @@ export const tokenFilterSchema = z.object({
    * di dua akun (trending-ai 68% -> 83%, set-final 50% -> 75%). Bisa ribuan persen, jadi bukan nullablePct.
    */
   maxPc1hPct: nullableNumber.default(null),
+  maxKol: z.coerce.number().int().min(0).nullable().default(null),
   maxSmartMoney: z.coerce.number().int().min(0).nullable().default(null),
   /** Hanya token bertag OG di GMGN. */
   ogOnly: z.boolean().default(false),

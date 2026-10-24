@@ -17,6 +17,7 @@ const MAX_RULES: Rule[] = [
   { key: 'maxBotDegenPct', field: 'botDegenPct', label: 'Bot degen', unit: '%' },
   { key: 'maxRugPct', field: 'rugPct', label: 'Rug', unit: '%' },
   { key: 'maxPc1hPct', field: 'change1hPct', label: 'Naik 1 jam', unit: '%' },
+  { key: 'maxKol', field: 'kolCount', label: 'KOL', unit: '' },
   { key: 'maxSmartMoney', field: 'smartMoneyCount', label: 'Smart money', unit: '' },
 ];
 
