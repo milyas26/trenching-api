@@ -12,6 +12,7 @@ import { TOKEN_SOURCE_LABEL, type HotToken } from '../../integrations/gmgn/gmgn.
 import type { BotState } from './bot.state.ts';
 import { applyTokenFilter, dexFilterRejections, needsDexFilter } from './token-filter.ts';
 import { settingsForToken } from '../trading/og-rule.ts';
+import { buildMarketSnapshot } from '../../integrations/dexscreener/market-snapshot.ts';
 
 /** Review AI per scan dibatasi supaya satu scan tidak berjalan terlalu lama (tiap review bisa ~1 menit). */
 const MAX_REVIEWS_PER_SCAN = 5;
@@ -81,7 +82,8 @@ export class ScannerService {
       if (settings.aiAgentEnabled) await this.buyReviewed(accountId, fresh, slots);
       else {
         for (const token of fresh.slice(0, slots)) {
-          await this.snapshots.unreviewed(accountId, token, settings.mode);
+          const market = await this.marketSnapshot(accountId, token);
+          await this.snapshots.unreviewed(accountId, token, settings.mode, market);
           if (!(await this.trading.open(accountId, token, settings))) break;
         }
       }
@@ -120,6 +122,17 @@ export class ScannerService {
       else rejected.set(token.mint, reasons);
     }
     return { passed: kept, rejected };
+  }
+
+  /** Buy tanpa AI tetap simpan market DexScreener supaya fitur analisa sama dengan buy hasil review AI. */
+  private async marketSnapshot(accountId: number, token: HotToken): Promise<unknown> {
+    try {
+      const [pair, ...others] = await this.dexscreener.getPairs(token.mint);
+      return pair ? buildMarketSnapshot(pair, others.length) : { error: 'token belum punya pair di DexScreener' };
+    } catch (e) {
+      await this.logs.for(accountId).warn(`Data market DexScreener gagal diambil untuk snapshot: ${(e as Error).message}`);
+      return { error: (e as Error).message };
+    }
   }
 
   /** Token ditinjau AI satu per satu; hanya yang diputuskan buy yang dibeli, sampai slot habis. */

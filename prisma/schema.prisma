@@ -133,7 +133,7 @@ model TokenSnapshot {
   recheckGainPct Float?           @map("recheck_gain_pct")
   /// Objek mentah GMGN (hot_searches atau trending), semua field.
   gmgn           Json
-  /// Data pair DexScreener yang dilihat agent.
+  /// Data pair DexScreener saat keputusan (review AI atau buy tanpa AI).
   market         Json?
   chart          Json?
   priceSamples   Json?            @map("price_samples")

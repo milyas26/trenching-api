@@ -31,8 +31,8 @@ export class SnapshotsService {
   }
 
   /** Buy langsung tanpa review AI. */
-  unreviewed(accountId: number, token: HotToken, mode: TradeMode) {
-    return this.save(accountId, token, mode, { decision: 'no_ai' });
+  unreviewed(accountId: number, token: HotToken, mode: TradeMode, market: unknown = null) {
+    return this.save(accountId, token, mode, { decision: 'no_ai', market });
   }
 
   private async save(accountId: number, token: HotToken, mode: TradeMode, data: Partial<NewTokenSnapshot> & Pick<NewTokenSnapshot, 'decision'>) {

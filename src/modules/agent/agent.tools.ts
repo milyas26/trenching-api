@@ -2,6 +2,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import type { ToolDefinition } from '../../integrations/deepseek/deepseek.types.ts';
 import type { DexscreenerClient } from '../../integrations/dexscreener/dexscreener.client.ts';
 import type { DexPair } from '../../integrations/dexscreener/dexscreener.types.ts';
+import { buildMarketSnapshot } from '../../integrations/dexscreener/market-snapshot.ts';
 import type { GeckoterminalClient } from '../../integrations/geckoterminal/geckoterminal.client.ts';
 import type { PriceSource } from '../../integrations/dexscreener/dexscreener.types.ts';
 import type { TokenSafety, TokenSignals } from '../../integrations/gmgn/gmgn.types.ts';
@@ -130,20 +131,7 @@ export class TokenInspector {
   private async marketData() {
     const [pair, ...others] = await this.getPairs();
     if (!pair) return { error: 'token belum punya pair di DexScreener' };
-    return {
-      dex: pair.dexId,
-      priceUsd: Number(pair.priceUsd),
-      marketCapUsd: pair.marketCap ?? pair.fdv ?? null,
-      liquidityUsd: pair.liquidity?.usd ?? null,
-      pairAgeMinutes: pair.pairCreatedAt ? Math.round((Date.now() - pair.pairCreatedAt) / 60_000) : null,
-      priceChangePct: pair.priceChange,
-      volumeUsd: pair.volume,
-      txns: pair.txns,
-      otherPairs: others.length,
-      websites: pair.info?.websites?.map((w) => w.url) ?? [],
-      socials: pair.info?.socials?.map((s) => `${s.type}: ${s.url}`) ?? [],
-      activeBoosts: pair.boosts?.active ?? 0,
-    };
+    return buildMarketSnapshot(pair, others.length);
   }
 
   /** Diambil dari hasil scan GMGN, jadi tidak butuh RPC Solana yang rate limit-nya ketat. */
