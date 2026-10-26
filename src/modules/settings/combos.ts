@@ -63,8 +63,12 @@ export const NON_AI_COMBO_IDS = idsOf('nonAi');
 /** Katalog untuk app (tanpa fungsi match). */
 export const comboCatalog = () => COMBOS.map(({ id, group, label, win, trades }) => ({ id, group, label, win, trades }));
 
+/** Semua trade di data analisa punya smart money >= 2 (gate lama), jadi token di bawahnya tidak pernah diuji. */
+const MIN_SMART_MONEY = 2;
+
 /** Kombo terpilih yang cocok dengan token, urut sesuai katalog. */
 export function matchCombos(token: HotToken, selected: readonly string[]): ComboDef[] {
+  if (!inRange(token.info.smartMoneyCount, MIN_SMART_MONEY)) return [];
   return COMBOS.filter((c) => selected.includes(c.id) && c.match(token));
 }
 
