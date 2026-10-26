@@ -1,9 +1,9 @@
 import { z } from 'zod';
 import { PUMP_POOLS } from '../../integrations/pumpportal/pumpportal.types.ts';
 import { TOKEN_SOURCES } from '../../integrations/gmgn/gmgn.types.ts';
+import { AI_COMBO_IDS, NON_AI_COMBO_IDS } from './combos.ts';
 
 const nullableNumber = z.coerce.number().min(0).nullable();
-const nullablePct = z.coerce.number().min(0).max(100).nullable();
 
 export const hotSearchFilterSchema = z.object({
   chain: z.string().min(1).default('sol'),
@@ -16,43 +16,12 @@ export const hotSearchFilterSchema = z.object({
 });
 
 /**
- * Filter kolom "Token Info" GMGN, diterapkan setelah fetch karena API GMGN tidak punya filternya.
- * null / false = tidak disaring. Token tanpa data untuk filter yang aktif ikut ditolak.
+ * Kombo win cluster per mode AI (lihat combos.ts). Token dibeli kalau cocok dengan salah satu kombo terpilih
+ * di daftar yang aktif: `ai` saat aiAgentEnabled, `nonAi` saat tidak. Daftar kosong = tidak ada buy.
  */
-export const tokenFilterSchema = z.object({
-  maxTop10Pct: nullablePct.default(null),
-  maxDevHoldPct: nullablePct.default(null),
-  devSoldOnly: z.boolean().default(false),
-  maxInsiderPct: nullablePct.default(null),
-  maxBundlerPct: nullablePct.default(null),
-  maxPhishingPct: nullablePct.default(null),
-  maxSniperPct: nullablePct.default(null),
-  dexPaidOnly: z.boolean().default(false),
-  maxBotDegenCount: z.coerce.number().int().min(0).nullable().default(null),
-  maxBotDegenPct: nullablePct.default(null),
-  /** "Rug %" GMGN: perkiraan peluang token di-rug. */
-  maxRugPct: nullablePct.default(null),
-  /**
-   * Batas atas perubahan harga 1 jam terakhir (`pcp1h` GMGN). Analisa 7 hari: <= 500% menaikkan win rate
-   * di dua akun (trending-ai 68% -> 83%, set-final 50% -> 75%). Bisa ribuan persen, jadi bukan nullablePct.
-   */
-  maxPc1hPct: nullableNumber.default(null),
-  maxKol: z.coerce.number().int().min(0).nullable().default(null),
-  maxSmartMoney: z.coerce.number().int().min(0).nullable().default(null),
-  /** Hanya token bertag OG di GMGN. */
-  ogOnly: z.boolean().default(false),
-  /** Batas bawah aktivitas 1 jam terakhir dan jumlah wallet KOL / smart money. */
-  minSells1h: z.coerce.number().int().min(0).nullable().default(null),
-  minSwaps1h: z.coerce.number().int().min(0).nullable().default(null),
-  minKol: z.coerce.number().int().min(0).nullable().default(null),
-  minSmartMoney: z.coerce.number().int().min(0).nullable().default(null),
-  /**
-   * Filter dari pair DexScreener (likuiditas terbesar), dicek setelah filter GMGN di atas.
-   * Rasio = jumlah transaksi buy / sell 1 jam terakhir; liq/MC = likuiditas USD / market cap.
-   */
-  maxBuySellRatio1h: z.coerce.number().positive().nullable().default(null),
-  minSocials: z.coerce.number().int().min(0).nullable().default(null),
-  minLiqMcRatio: z.coerce.number().min(0).nullable().default(null),
+export const combosSchema = z.object({
+  ai: z.array(z.enum(AI_COMBO_IDS)).default([]),
+  nonAi: z.array(z.enum(NON_AI_COMBO_IDS)).default([]),
 });
 
 /**
@@ -91,7 +60,7 @@ export const botSettingsSchema = z.object({
   priorityFeeSol: z.coerce.number().min(0).default(0.0005),
   pool: z.enum(PUMP_POOLS as [string, ...string[]]).default('auto'),
 
-  /** Token dicek AI agent (DeepSeek) sebelum buy; false = langsung buy semua yang lolos filter. */
+  /** Token yang cocok kombo dicek AI agent (DeepSeek) sebelum buy; false = langsung buy. Juga memilih daftar kombo yang dipakai. */
   aiAgentEnabled: z.boolean().default(true),
   /** 0 = mati. Buy dari AI ditolak kalau harga naik kurang dari X% antara sampel pertama dan recheck terakhir. */
   minRecheckGainPct: z.coerce.number().min(0).default(10),
@@ -109,7 +78,7 @@ export const botSettingsSchema = z.object({
 
   source: z.enum(TOKEN_SOURCES).default('hot_searches'),
   filter: hotSearchFilterSchema.default(hotSearchFilterSchema.parse({})),
-  tokenFilter: tokenFilterSchema.default(tokenFilterSchema.parse({})),
+  combos: combosSchema.default(combosSchema.parse({})),
   ogRule: ogRuleSchema.default(ogRuleSchema.parse({})),
 });
 
@@ -125,10 +94,10 @@ function withoutDefaults<S extends z.ZodRawShape>(schema: z.ZodObject<S>) {
 }
 
 /** Payload PUT /settings: semua field opsional, botEnabled diatur lewat /bot/start|stop. */
-export const settingsPatchSchema = withoutDefaults(botSettingsSchema.omit({ botEnabled: true, filter: true, tokenFilter: true, ogRule: true }))
+export const settingsPatchSchema = withoutDefaults(botSettingsSchema.omit({ botEnabled: true, filter: true, combos: true, ogRule: true }))
   .extend({
     filter: withoutDefaults(hotSearchFilterSchema).optional(),
-    tokenFilter: withoutDefaults(tokenFilterSchema).optional(),
+    combos: withoutDefaults(combosSchema).optional(),
     ogRule: withoutDefaults(ogRuleSchema).optional(),
   })
   .strict();

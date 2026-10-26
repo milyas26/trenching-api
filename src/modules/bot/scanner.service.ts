@@ -1,6 +1,5 @@
 import type { GmgnClient } from '../../integrations/gmgn/gmgn.client.ts';
 import type { DexscreenerClient } from '../../integrations/dexscreener/dexscreener.client.ts';
-import type { DexPair } from '../../integrations/dexscreener/dexscreener.types.ts';
 import type { IPositionsRepository } from '../positions/positions.interfaces.ts';
 import type { SettingsService } from '../settings/settings.service.ts';
 import type { LogsService } from '../logs/logs.service.ts';
@@ -10,7 +9,7 @@ import type { SnapshotsService } from '../snapshots/snapshots.service.ts';
 import type { BotSettings } from '../settings/settings.interfaces.ts';
 import { TOKEN_SOURCE_LABEL, type HotToken } from '../../integrations/gmgn/gmgn.types.ts';
 import type { BotState } from './bot.state.ts';
-import { applyTokenFilter, dexFilterRejections, needsDexFilter } from './token-filter.ts';
+import { comboLabels, matchCombos } from '../settings/combos.ts';
 import { settingsForToken } from '../trading/og-rule.ts';
 import { buildMarketSnapshot } from '../../integrations/dexscreener/market-snapshot.ts';
 
@@ -19,7 +18,7 @@ const MAX_REVIEWS_PER_SCAN = 5;
 
 const shortMint = (mint: string) => `${mint.slice(0, 4)}…${mint.slice(-4)}`;
 
-/** Jalankan filter GMGN dan filter Token Info, lalu buy token baru selama slot masih ada. Satu scan per akun. */
+/** Ambil token dengan filter GMGN, cocokkan ke kombo yang dipilih, lalu buy token baru selama slot masih ada. Satu scan per akun. */
 export class ScannerService {
   constructor(
     private readonly state: BotState,
@@ -59,8 +58,8 @@ export class ScannerService {
       const settings = await this.settings.get(accountId);
       const scan = await this.gmgn.fetchTokens(settings.source, settings.filter);
       await this.snapshots.scan(accountId, settings.source, settings.filter, scan);
-      const filtered = applyTokenFilter(scan.tokens, settings.tokenFilter);
-      const { passed, rejected } = await this.applyDexFilter(filtered, settings.tokenFilter, accountId);
+      await this.attachDexTxns(scan.tokens, accountId);
+      const { passed, rejected } = this.applyCombos(scan.tokens, settings);
       state.lastScanAt = new Date();
       state.lastScanError = null;
       state.lastScanSource = settings.source;
@@ -75,13 +74,14 @@ export class ScannerService {
       const active = await this.positions.countActive(accountId, settings.mode);
       const slots = Math.max(0, Math.min(settings.maxOpenPositions - active, settings.maxBuysPerScan));
       await log.info(
-        `Scan ${TOKEN_SOURCE_LABEL[settings.source]}: ${scan.tokens.length} token dari GMGN, ${passed.length} lolos filter, `
+        `Scan ${TOKEN_SOURCE_LABEL[settings.source]}: ${scan.tokens.length} token dari GMGN, ${passed.length} cocok kombo, `
           + `${fresh.length} baru, slot buy ${slots}`,
       );
 
       if (settings.aiAgentEnabled) await this.buyReviewed(accountId, fresh, slots);
       else {
         for (const token of fresh.slice(0, slots)) {
+          await log.info(`Kombo ${token.symbol ?? shortMint(token.mint)}: ${comboLabels(token.info.combos)}`);
           const market = await this.marketSnapshot(accountId, token);
           await this.snapshots.unreviewed(accountId, token, settings.mode, market);
           if (!(await this.trading.open(accountId, token, settings))) break;
@@ -96,32 +96,32 @@ export class ScannerService {
   }
 
   /**
-   * Pair DexScreener diambil untuk semua token yang lolos filter GMGN: transaksi 1 jamnya disimpan ke token.info
-   * (ikut tersimpan di posisi), lalu filter DexScreener dicek. Request gagal hanya menggagalkan scan kalau filternya aktif.
+   * Transaksi 1 jam pair DexScreener disimpan ke token.info (ikut tersimpan di posisi) karena beberapa kombo memakainya.
+   * Kalau request gagal, scan tetap jalan; kombo yang butuh data ini tidak cocok.
    */
-  private async applyDexFilter(
-    { passed, rejected }: ReturnType<typeof applyTokenFilter>,
-    filter: BotSettings['tokenFilter'],
-    accountId: number,
-  ): Promise<ReturnType<typeof applyTokenFilter>> {
-    if (passed.length === 0) return { passed, rejected };
-    let pairs: Map<string, DexPair>;
+  private async attachDexTxns(tokens: HotToken[], accountId: number) {
+    if (tokens.length === 0) return;
     try {
-      pairs = await this.dexscreener.getTopPairs(passed.map((t) => t.mint));
+      const pairs = await this.dexscreener.getTopPairs(tokens.map((t) => t.mint));
+      for (const token of tokens) token.info.dexTxns1h = pairs.get(token.mint)?.txns?.h1 ?? null;
     } catch (e) {
-      if (needsDexFilter(filter)) throw e;
-      await this.logs.for(accountId).warn(`Data DexScreener gagal diambil, rasio buy/sell tidak tersimpan: ${(e as Error).message}`);
-      return { passed, rejected };
+      await this.logs.for(accountId).warn(`Data DexScreener gagal diambil, kombo yang memakai buys/sells/rasio dilewati: ${(e as Error).message}`);
     }
-    const kept: HotToken[] = [];
-    for (const token of passed) {
-      const pair = pairs.get(token.mint);
-      token.info.dexTxns1h = pair?.txns?.h1 ?? null;
-      const reasons = dexFilterRejections(pair, filter);
-      if (reasons.length === 0) kept.push(token);
-      else rejected.set(token.mint, reasons);
+  }
+
+  /** Daftar kombo yang dipakai mengikuti cek AI. Id kombo yang cocok disimpan di token.info. */
+  private applyCombos(tokens: HotToken[], settings: BotSettings) {
+    const selected = settings.aiAgentEnabled ? settings.combos.ai : settings.combos.nonAi;
+    const which = settings.aiAgentEnabled ? 'AI' : 'non-AI';
+    const passed: HotToken[] = [];
+    const rejected = new Map<string, string[]>();
+    for (const token of tokens) {
+      const matched = matchCombos(token, selected);
+      token.info.combos = matched.map((c) => c.id);
+      if (matched.length > 0) passed.push(token);
+      else rejected.set(token.mint, [selected.length === 0 ? `Belum ada kombo ${which} dipilih` : `Tidak cocok kombo ${which}`]);
     }
-    return { passed: kept, rejected };
+    return { passed, rejected };
   }
 
   /** Buy tanpa AI tetap simpan market DexScreener supaya fitur analisa sama dengan buy hasil review AI. */
@@ -160,7 +160,7 @@ export class ScannerService {
           // AI menilai peluang mencapai TP yang benar-benar dipakai (TP khusus kalau token OG).
           const d = await this.agent.review(accountId, token, settingsForToken(token, settings));
           await this.snapshots.reviewed(accountId, token, settings.mode, d);
-          await log.info(`AI ${d.decision.toUpperCase()} ${label} (${d.confidence}%, ${d.steps} langkah): ${d.reason}`);
+          await log.info(`AI ${d.decision.toUpperCase()} ${label} (${d.confidence}%, ${d.steps} langkah, kombo ${comboLabels(token.info.combos)}): ${d.reason}`);
           if (d.decision !== 'buy') continue;
         } catch (e) {
           await this.snapshots.failed(accountId, token, settings.mode, (e as Error).message);

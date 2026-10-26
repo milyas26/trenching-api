@@ -10,7 +10,7 @@ await container.bot.recover();
 await container.scheduler.start();
 
 await app.listen({ port: env.port, host: env.host });
-console.log(`micin-agent API jalan di http://localhost:${env.port}`);
+console.log(`trenching API jalan di http://localhost:${env.port}`);
 
 async function shutdown() {
   container.scheduler.stop();

@@ -2,6 +2,7 @@ import type { FastifyRequest } from 'fastify';
 import { accountIdOf } from '../../common/account.ts';
 import { TOKEN_SOURCE_LABEL } from '../../integrations/gmgn/gmgn.types.ts';
 import { settingsPatchSchema } from './settings.schema.ts';
+import { comboCatalog } from './combos.ts';
 import type { SettingsService } from './settings.service.ts';
 import type { LogsService } from '../logs/logs.service.ts';
 import type { BotScheduler } from '../bot/bot.scheduler.ts';
@@ -16,6 +17,9 @@ export class SettingsController {
   ) {}
 
   get = (req: FastifyRequest) => this.settings.get(accountIdOf(req));
+
+  /** Sama untuk semua akun, jadi tidak butuh header akun. */
+  combos = () => comboCatalog();
 
   update = async (req: FastifyRequest) => {
     const accountId = accountIdOf(req);

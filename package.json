@@ -1,5 +1,5 @@
 {
-  "name": "micin-agent-api",
+  "name": "trenching-api",
   "version": "1.0.0",
   "private": true,
   "type": "module",
@@ -26,5 +26,5 @@
     "@types/node": "^26.6.5",
     "typescript": "^7.0.2"
   },
-  "description": "micin-agent API: GMGN scanner, auto buy, TP/SL monitor"
+  "description": "trenching API: GMGN scanner, auto buy, TP/SL monitor"
 }

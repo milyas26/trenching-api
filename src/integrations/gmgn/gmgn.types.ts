@@ -127,7 +127,7 @@ export interface TokenSafety {
 
 /**
  * Kolom "Token Info" di tabel GMGN, dalam persen. GMGN tidak menyediakan filter untuk ini,
- * jadi disaring setelah fetch (lihat token-filter.ts).
+ * jadi dicocokkan ke kombo setelah fetch (lihat settings/combos.ts).
  */
 export interface TokenInfo {
   top10Pct: number | null;
@@ -169,6 +169,8 @@ export interface TokenInfo {
    * yang tidak punya data DexScreener.
    */
   gmgnTxns1h?: { buys: number; sells: number } | null;
+  /** Bukan dari GMGN: id kombo yang cocok saat scan, ikut tersimpan di posisi untuk analisa. */
+  combos?: string[];
 }
 
 /** Hasil satu panggilan hot_searches: response apa adanya (tanpa list token) dan token yang sudah dipetakan. */
