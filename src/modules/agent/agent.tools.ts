@@ -7,7 +7,7 @@ import type { GeckoterminalClient } from '../../integrations/geckoterminal/gecko
 import type { PriceSource } from '../../integrations/dexscreener/dexscreener.types.ts';
 import type { TokenSafety, TokenSignals } from '../../integrations/gmgn/gmgn.types.ts';
 import type { PriceSample } from './agent.interfaces.ts';
-import { analyzeChart, CHART_WINDOW, type ChartStats } from './agent.chart.ts';
+import { CHART_WINDOW, loadChartStats, type ChartStats } from './agent.chart.ts';
 
 export const MIN_WAIT_SEC = 5;
 export const MAX_WAIT_SEC = 30;
@@ -115,17 +115,10 @@ export class TokenInspector {
     return this.pairs;
   }
 
-  /** Candle gagal diambil tidak menggagalkan stats; ukuran trade cukup dari DexScreener. */
   private async chartStats(): Promise<ChartStats> {
     const [pair] = await this.getPairs();
     if (!pair) throw new Error('token belum punya pair di DexScreener');
-    let candleError: string | undefined;
-    const candles = pair.pairAddress
-      ? await this.gecko.getMinuteCandles(pair.pairAddress, CHART_WINDOW + 1).catch((e: Error) => { candleError = e.message; return null; })
-      : null;
-    const stats = analyzeChart(candles, pair, Date.now() / 1000);
-    if (candleError) stats.candleError = candleError;
-    return stats;
+    return loadChartStats(pair, this.gecko);
   }
 
   private async marketData() {

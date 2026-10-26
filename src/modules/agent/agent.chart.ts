@@ -1,5 +1,6 @@
 import type { DexPair } from '../../integrations/dexscreener/dexscreener.types.ts';
 import type { Candle } from '../../integrations/geckoterminal/geckoterminal.types.ts';
+import type { GeckoterminalClient } from '../../integrations/geckoterminal/geckoterminal.client.ts';
 
 /** Candle 1 menit yang dinilai. */
 export const CHART_WINDOW = 30;
@@ -9,6 +10,11 @@ export const CHART_WINDOW = 30;
  */
 const STAIRCASE_MIN_STREAK = 8;
 const STAIRCASE_MAX_BODY_PCT = 6;
+/**
+ * Token yang sudah pernah dijatuhkan dalam satu menit. Contoh Speed (k1Mk…Gpump): tangga hijau, candle -90%,
+ * lalu tangga kedua yang terlalu pendek untuk pola tangga; dibeli di tangga kedua dan dump lagi dua menit kemudian.
+ */
+const DUMP_CANDLE_PCT = -50;
 /** Volume dari micro-trade bot: ELON rata-rata $2,7 per trade dari 23 ribu transaksi. */
 const MIN_AVG_TRADE_USD = 5;
 const MIN_TXNS_FOR_TRADE_SIZE = 300;
@@ -71,6 +77,11 @@ export function analyzeChart(candles: Candle[] | null, pair: DexPair, nowSec: nu
     if (streak >= STAIRCASE_MIN_STREAK && streakMax <= STAIRCASE_MAX_BODY_PCT) {
       flags.push(`${streak} candle 1m hijau beruntun tanpa koreksi, body maks +${round(streakMax, 1)}% (pola tangga bot)`);
     }
+    const dump = closed.reduce((worst, c) => (bodyPct(c) < bodyPct(worst) ? c : worst));
+    if (bodyPct(dump) <= DUMP_CANDLE_PCT) {
+      const minutesAgo = Math.round((nowSec - dump.at) / 60);
+      flags.push(`candle 1m ${round(bodyPct(dump), 1)}% sekitar ${minutesAgo} menit lalu (sudah pernah dijatuhkan)`);
+    }
   }
 
   // Token di bawah 1 jam: h1 dan h6 isinya sama. Pakai h6 kalau h1 terlalu sepi untuk dirata-rata.
@@ -87,5 +98,16 @@ export function analyzeChart(candles: Candle[] | null, pair: DexPair, nowSec: nu
       flags.push(`rata-rata trade $${round(avg)} dari ${trade.txns} transaksi ${trade.w} (volume dari micro-trade bot)`);
     }
   }
+  return stats;
+}
+
+/** Candle gagal diambil tidak menggagalkan stats; ukuran trade cukup dari DexScreener. */
+export async function loadChartStats(pair: DexPair, gecko: GeckoterminalClient): Promise<ChartStats> {
+  let candleError: string | undefined;
+  const candles = pair.pairAddress
+    ? await gecko.getMinuteCandles(pair.pairAddress, CHART_WINDOW + 1).catch((e: Error) => { candleError = e.message; return null; })
+    : null;
+  const stats = analyzeChart(candles, pair, Date.now() / 1000);
+  if (candleError) stats.candleError = candleError;
   return stats;
 }

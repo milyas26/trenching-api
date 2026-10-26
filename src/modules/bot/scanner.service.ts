@@ -12,9 +12,13 @@ import type { BotState } from './bot.state.ts';
 import { comboLabels, matchCombos } from '../settings/combos.ts';
 import { settingsForToken } from '../trading/og-rule.ts';
 import { buildMarketSnapshot } from '../../integrations/dexscreener/market-snapshot.ts';
+import type { GeckoterminalClient } from '../../integrations/geckoterminal/geckoterminal.client.ts';
+import { loadChartStats } from '../agent/agent.chart.ts';
 
 /** Review AI per scan dibatasi supaya satu scan tidak berjalan terlalu lama (tiap review bisa ~1 menit). */
 const MAX_REVIEWS_PER_SCAN = 5;
+/** Tiap cek chart memakai satu slot GeckoTerminal (jeda 6 detik) yang juga dipakai untuk harga posisi. */
+const MAX_CHART_CHECKS_PER_SCAN = 5;
 
 const shortMint = (mint: string) => `${mint.slice(0, 4)}…${mint.slice(-4)}`;
 
@@ -24,6 +28,7 @@ export class ScannerService {
     private readonly state: BotState,
     private readonly gmgn: GmgnClient,
     private readonly dexscreener: DexscreenerClient,
+    private readonly gecko: GeckoterminalClient,
     private readonly positions: IPositionsRepository,
     private readonly settings: SettingsService,
     private readonly trading: TradingService,
@@ -79,14 +84,7 @@ export class ScannerService {
       );
 
       if (settings.aiAgentEnabled) await this.buyReviewed(accountId, fresh, slots);
-      else {
-        for (const token of fresh.slice(0, slots)) {
-          await log.info(`Kombo ${token.symbol ?? shortMint(token.mint)}: ${comboLabels(token.info.combos)}`);
-          const market = await this.marketSnapshot(accountId, token);
-          await this.snapshots.unreviewed(accountId, token, settings.mode, market);
-          if (!(await this.trading.open(accountId, token, settings))) break;
-        }
-      }
+      else await this.buyUnreviewed(accountId, fresh, slots, settings);
     } catch (e) {
       state.lastScanError = (e as Error).message;
       await log.error(`Scan gagal: ${state.lastScanError}`);
@@ -124,14 +122,40 @@ export class ScannerService {
     return { passed, rejected };
   }
 
-  /** Buy tanpa AI tetap simpan market DexScreener supaya fitur analisa sama dengan buy hasil review AI. */
-  private async marketSnapshot(accountId: number, token: HotToken): Promise<unknown> {
+  /**
+   * Tanpa AI, gate chart bot yang sama dengan review AI tetap dijalankan sebelum buy. Kalau data chart tidak bisa
+   * diambil, token tetap dibeli, sama seperti review AI yang lanjut ke model saat chart gagal.
+   */
+  private async buyUnreviewed(accountId: number, tokens: HotToken[], slots: number, settings: BotSettings) {
+    const log = this.logs.for(accountId);
+    let bought = 0;
+    let checked = 0;
+    for (const token of tokens) {
+      if (bought >= slots || checked >= MAX_CHART_CHECKS_PER_SCAN) break;
+      checked++;
+      const label = token.symbol ?? shortMint(token.mint);
+      const { market, botFlags } = await this.inspect(accountId, token);
+      if (botFlags.length > 0) {
+        await log.info(`SKIP ${label} (kombo ${comboLabels(token.info.combos)}): chart buatan bot: ${botFlags.join('; ')}`);
+        continue;
+      }
+      await log.info(`Kombo ${label}: ${comboLabels(token.info.combos)}`);
+      await this.snapshots.unreviewed(accountId, token, settings.mode, market);
+      if (!(await this.trading.open(accountId, token, settings))) break;
+      bought++;
+    }
+  }
+
+  /** Market DexScreener tetap disimpan supaya fitur analisa sama dengan buy hasil review AI. Pair dipakai juga untuk chart. */
+  private async inspect(accountId: number, token: HotToken): Promise<{ market: unknown; botFlags: string[] }> {
     try {
       const [pair, ...others] = await this.dexscreener.getPairs(token.mint);
-      return pair ? buildMarketSnapshot(pair, others.length) : { error: 'token belum punya pair di DexScreener' };
+      if (!pair) return { market: { error: 'token belum punya pair di DexScreener' }, botFlags: [] };
+      const chart = await loadChartStats(pair, this.gecko);
+      return { market: buildMarketSnapshot(pair, others.length), botFlags: chart.botFlags };
     } catch (e) {
-      await this.logs.for(accountId).warn(`Data market DexScreener gagal diambil untuk snapshot: ${(e as Error).message}`);
-      return { error: (e as Error).message };
+      await this.logs.for(accountId).warn(`Data DexScreener gagal diambil, cek chart dan snapshot market dilewati: ${(e as Error).message}`);
+      return { market: { error: (e as Error).message }, botFlags: [] };
     }
   }
 
