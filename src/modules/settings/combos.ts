@@ -54,6 +54,15 @@ export const COMBOS: ComboDef[] = [
     match: (t) => inRange(dexSells(t), 0, 300) && t.info.devSold === false },
   { id: 'nonai-devsold-no-cto-no', group: 'nonAi', label: 'Dev belum jual + bukan CTO', win: 45, trades: 75,
     match: (t) => t.info.devSold === false && t.info.communityTakeover === false },
+  /**
+   * Kombo momentum+aktivitas dari data live 233 trade (26-28 Okt): kuartil change1h terendah (-29% avg, WR 26%)
+   * dan token sepi (swaps1h <330, -19% avg) adalah sumber seluruh rugi. Gate aktivitas minimal ini yang
+   * menggantikan kombo lama yang justru menyeleksi token sepi.
+   */
+  { id: 'nonai-hot-clean', group: 'nonAi', label: 'Naik 1 jam ≥1.250% + bot degen <40%', win: 56, trades: 99,
+    match: (t) => inRange(t.info.change1hPct, 1250) && inRange(t.info.botDegenPct, 0, 40) },
+  { id: 'nonai-hot-active', group: 'nonAi', label: 'Naik 1 jam ≥1.250% + bot degen <40% + swaps ≥1.200', win: 40, trades: 70,
+    match: (t) => inRange(t.info.change1hPct, 1250) && inRange(t.info.botDegenPct, 0, 40) && inRange(t.info.swaps1h, 1200) },
 ];
 
 const idsOf = (group: ComboGroup) => COMBOS.filter((c) => c.group === group).map((c) => c.id) as [string, ...string[]];

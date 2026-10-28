@@ -15,8 +15,12 @@ import { buildMarketSnapshot } from '../../integrations/dexscreener/market-snaps
 import type { GeckoterminalClient } from '../../integrations/geckoterminal/geckoterminal.client.ts';
 import { loadChartStats } from '../agent/agent.chart.ts';
 
-/** Review AI per scan dibatasi supaya satu scan tidak berjalan terlalu lama (tiap review bisa ~1 menit). */
-const MAX_REVIEWS_PER_SCAN = 5;
+/**
+ * Review AI per scan dibatasi supaya satu scan tidak berjalan terlalu lama (tiap review bisa ~1 menit).
+ * Dua token teratas saja: antrean review yang panjang membuat token terakhir dibeli beberapa menit setelah
+ * diskon hilang (median entry akun AI 5,5 menit lebih telat dan 61% lebih mahal dari akun non-AI).
+ */
+const MAX_REVIEWS_PER_SCAN = 2;
 /** Tiap cek chart memakai satu slot GeckoTerminal (jeda 6 detik) yang juga dipakai untuk harga posisi. */
 const MAX_CHART_CHECKS_PER_SCAN = 5;
 

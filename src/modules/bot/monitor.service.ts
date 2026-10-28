@@ -165,11 +165,14 @@ export class MonitorService {
 
   private async apply(pos: Position, price: number, settings: BotSettings, throttled: boolean) {
     if (!pos.entryPrice || this.closing.has(pos.id) || this.open.get(pos.id) !== pos) return;
-    if (!(await this.confirmed(pos, price))) return;
+    // Harga yang sudah menembus stop loss tidak perlu dikonfirmasi: menunda exit saat rug hanya menambah rugi
+    // (4 posisi rug di data 26-28 Okt keluar di -96%, padahal guard "harga melompat" menahannya satu tick).
+    const pnl = pnlPct(pos.entryPrice, price);
+    if (pnl > -settings.stopLossPct && !(await this.confirmed(pos, price))) return;
+    this.suspect.delete(pos.id);
 
     const highPrice = Math.max(pos.highPrice ?? 0, price);
     const lowPrice = Math.min(pos.lowPrice ?? pos.entryPrice, price);
-    const pnl = pnlPct(pos.entryPrice, price);
     pos.highPrice = highPrice;
     pos.lowPrice = lowPrice;
     pos.currentPrice = price;

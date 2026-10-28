@@ -13,7 +13,12 @@ import { ReviewTrace } from './agent.trace.ts';
 /** Batas giliran model per token; habis tanpa keputusan = skip. */
 const MAX_STEPS = 8;
 /** Buy baru diterima setelah harga dicek minimal sebanyak ini (sampel awal + recheck). */
-const MIN_PRICE_SAMPLES = 3;
+const MIN_PRICE_SAMPLES = 2;
+/**
+ * Anggaran waktu satu review. Data 30 buy akun AI: median entry 5,5 menit setelah akun non-AI membeli token
+ * yang sama dengan harga 61% lebih tinggi (-17% vs +22%). Review yang kelamaan = entry basi, jadi dipotong.
+ */
+const REVIEW_BUDGET_MS = 90_000;
 /** Token yang sudah diputuskan (buy/skip) tidak ditinjau ulang selama ini, supaya scan berikutnya tidak membayar review yang sama. */
 const REVIEW_COOLDOWN_MS = 30 * 60_000;
 /** Review terakhir yang disimpan di memori untuk ditampilkan di app. */
@@ -182,8 +187,17 @@ export class AgentService {
       { role: 'system', content: SYSTEM_PROMPT },
       { role: 'user', content: JSON.stringify({ token: describe(token), strategy: strategyOf(settings) }) },
     ];
+    const startedAt = Date.now();
 
     for (let step = 1; step <= MAX_STEPS; step++) {
+      // Review yang kelamaan berarti harga entry sudah basi; token dilewati, bukan dibeli terlambat.
+      if (Date.now() - startedAt > REVIEW_BUDGET_MS) {
+        const decision = {
+          decision: 'skip' as const, confidence: 0,
+          reason: `Review lewat batas ${REVIEW_BUDGET_MS / 1000} dtk, harga entry sudah basi.`, steps: step - 1,
+        };
+        return this.finish(cooldownKey, decision);
+      }
       // Langkah terakhir: paksa keputusan supaya review tidak habis tanpa hasil.
       const toolChoice = step === MAX_STEPS ? { type: 'function' as const, function: { name: 'submit_decision' } } : undefined;
       trace.thinking(step);
