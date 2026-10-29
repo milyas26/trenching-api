@@ -64,6 +64,15 @@ export const COMBOS: ComboDef[] = [
   /** Versi lebih ketat: momentum sama tapi bot degen dibatasi (WR 57% di 99 trade pada data yang sama). */
   { id: 'nonai-hot-clean', group: 'nonAi', label: 'Naik 1 jam ≥1.250% + bot degen <40%', win: 56, trades: 99,
     match: (t) => inRange(t.info.change1hPct, 1250) && inRange(t.info.botDegenPct, 0, 40) },
+  /**
+   * "Sweet spot" pump dari 134 trade akun ab-hot: hampir semua fitur berbentuk U terbalik, dua ujungnya rugi.
+   * - change1h 1.700-3.000%: di bawahnya belum ada permintaan, di atasnya sudah blow-off (avg -4.8% di >2.600%).
+   * - sells1h ≤1.150: sisi jual belum padat; >1.150 avg -13.3%.
+   * - smart money 3-27: kosong = tidak ada yang minat, >27 = sudah rame/terlambat (avg -13.8%).
+   * Hasil di data itu: 49 dari 134 trade (37%), WR 77,6%, avg +15,0%/trade, net +6,35 SOL sesudah fee 2%.
+   */
+  { id: 'nonai-hot-quality', group: 'nonAi', label: 'Sweet spot: naik 1 jam 1.700–3.000% + sells ≤1.150 + SM 3–27', win: 38, trades: 49,
+    match: (t) => inRange(t.info.change1hPct, 1700, 3000) && inRange(t.info.sells1h, 0, 1151) && inRange(t.info.smartMoneyCount, 3, 28) },
 ];
 
 const idsOf = (group: ComboGroup) => COMBOS.filter((c) => c.group === group).map((c) => c.id) as [string, ...string[]];
