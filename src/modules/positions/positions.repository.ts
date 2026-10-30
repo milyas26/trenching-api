@@ -2,7 +2,7 @@ import { Prisma } from '../../generated/prisma/client.ts';
 import type { PrismaClient } from '../../lib/prisma.ts';
 import {
   ACTIVE_STATUSES, FINISHED_STATUSES, HISTORY_FLAG_KEYS, HISTORY_TOKEN_INFO_KEYS,
-  type BuyReasonDto, type ClosedPositionData, type DailyPnl, type DailyPnlQuery, type HistoryRangeKey, type HistorySummary, type IPositionsRepository, type ListPositionsQuery,
+  type BuyReasonDto, type ClosedPositionData, type ClosedTrade, type DailyPnl, type DailyPnlQuery, type HistoryRangeKey, type HistorySummary, type IPositionsRepository, type ListPositionsQuery,
   type ModeStats, type NewPosition, type OpenedPositionData, type Position, type PositionHistoryQuery, type TradeMode,
 } from './positions.interfaces.ts';
 
@@ -47,6 +47,9 @@ function historyConditions({ accountId, mode, ranges, flags }: Omit<PositionHist
   }
   return conditions;
 }
+
+/** Tanggal tutup di zona waktu app; closed_at disimpan tanpa zona waktu (UTC). */
+const closedDay = (tz: string) => Prisma.sql`((closed_at AT TIME ZONE 'UTC') AT TIME ZONE ${tz})::date`;
 
 export class PositionsRepository implements IPositionsRepository {
   constructor(private readonly db: PrismaClient) {}
@@ -106,9 +109,8 @@ export class PositionsRepository implements IPositionsRepository {
     return row!;
   }
 
-  /** closed_at disimpan tanpa zona waktu (UTC), jadi dibaca sebagai UTC dulu sebelum diubah ke tz. */
   dailyPnl({ accountId, mode, tz, from, to, ranges, flags }: DailyPnlQuery) {
-    const day = Prisma.sql`((closed_at AT TIME ZONE 'UTC') AT TIME ZONE ${tz})::date`;
+    const day = closedDay(tz);
     return this.db.$queryRaw<DailyPnl[]>`
       SELECT
         to_char(${day}, 'YYYY-MM-DD') AS date,
@@ -122,6 +124,17 @@ export class PositionsRepository implements IPositionsRepository {
         AND ${day} BETWEEN ${from}::date AND ${to}::date
       GROUP BY 1
       ORDER BY 1
+    `;
+  }
+
+  closedTrades({ accountId, mode, tz, from, to, ranges, flags }: DailyPnlQuery) {
+    return this.db.$queryRaw<ClosedTrade[]>`
+      SELECT id, mint, symbol, name, logo, COALESCE(pnl_sol, 0)::float8 AS "pnlSol", pnl_pct AS "pnlPct", closed_at AS "closedAt"
+      FROM positions
+      WHERE ${Prisma.join(historyConditions({ accountId, mode, ranges, flags }), ' AND ')}
+        AND status::text = 'closed' AND closed_at IS NOT NULL
+        AND ${closedDay(tz)} BETWEEN ${from}::date AND ${to}::date
+      ORDER BY closed_at, id
     `;
   }
 

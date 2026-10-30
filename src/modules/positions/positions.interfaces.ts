@@ -98,6 +98,18 @@ export interface DailyPnl {
   pnlSol: number;
 }
 
+/** Satu posisi closed untuk grafik pertumbuhan per token; tiap mint hanya dibeli sekali per akun dan mode. */
+export interface ClosedTrade {
+  id: number;
+  mint: string;
+  symbol: string | null;
+  name: string | null;
+  logo: string | null;
+  pnlSol: number;
+  pnlPct: number | null;
+  closedAt: Date;
+}
+
 export interface NewPosition {
   accountId: number;
   mode: TradeMode;
@@ -176,6 +188,8 @@ export interface IPositionsRepository {
   historySummary(query: Omit<PositionHistoryQuery, 'cursor' | 'limit'>): Promise<HistorySummary>;
   /** PnL closed per tanggal dalam rentang, urut tanggal. */
   dailyPnl(query: DailyPnlQuery): Promise<DailyPnl[]>;
+  /** Posisi closed dalam rentang tanggal yang sama dengan dailyPnl, urut waktu tutup dari yang paling awal. */
+  closedTrades(query: DailyPnlQuery): Promise<ClosedTrade[]>;
   /** Semua mint yang pernah dicoba buy oleh akun ini, paper maupun real, termasuk yang gagal. */
   boughtMints(accountId: number): Promise<Set<string>>;
   /** Tanpa mode = semua mode. */
