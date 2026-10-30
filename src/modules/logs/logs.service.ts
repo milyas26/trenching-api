@@ -10,6 +10,10 @@ export class LogsService {
     return this.repo.latest(accountId, Math.min(Math.max(limit, 1), 500));
   }
 
+  prune(before: Date) {
+    return this.repo.prune(before);
+  }
+
   /** Logger untuk satu akun; null = log sistem (tampil di semua akun). */
   for(accountId: number | null): Logger {
     let logger = this.loggers.get(accountId);

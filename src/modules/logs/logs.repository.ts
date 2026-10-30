@@ -18,4 +18,9 @@ export class LogsRepository implements ILogsRepository {
     // BigInt tidak bisa di-JSON-kan
     return rows.map((r) => ({ ...r, id: Number(r.id) }));
   }
+
+  async prune(before: Date) {
+    const { count } = await this.db.log.deleteMany({ where: { createdAt: { lt: before } } });
+    return count;
+  }
 }

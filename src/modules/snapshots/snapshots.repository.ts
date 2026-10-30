@@ -26,4 +26,22 @@ export class SnapshotsRepository implements ISnapshotsRepository {
       },
     });
   }
+
+  pruneUnboughtTokens(before: Date, batch: number) {
+    return this.db.$executeRaw`
+      DELETE FROM "gmgn_tokens"
+      WHERE "id" IN (
+        SELECT t."id" FROM "gmgn_tokens" t
+        WHERE t."created_at" < ${before}
+          AND NOT EXISTS (SELECT 1 FROM "positions" p WHERE p."mint" = t."mint")
+        LIMIT ${batch}
+      )`;
+  }
+
+  pruneEmptyScans(before: Date) {
+    return this.db.$executeRaw`
+      DELETE FROM "gmgn_scans" s
+      WHERE s."created_at" < ${before}
+        AND NOT EXISTS (SELECT 1 FROM "gmgn_tokens" t WHERE t."scan_id" = s."id")`;
+  }
 }

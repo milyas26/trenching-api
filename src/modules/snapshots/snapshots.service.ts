@@ -3,6 +3,8 @@ import type { ReviewedDecision } from '../agent/agent.interfaces.ts';
 import type { TradeMode } from '../positions/positions.interfaces.ts';
 import type { ISnapshotsRepository, NewTokenSnapshot } from './snapshots.interfaces.ts';
 
+const PRUNE_BATCH = 5_000;
+
 /** Data token saat keputusan buy/skip, disimpan untuk analisa. Gagal simpan tidak boleh menghentikan scan. */
 export class SnapshotsService {
   constructor(private readonly repo: ISnapshotsRepository) {}
@@ -17,6 +19,19 @@ export class SnapshotsService {
     } catch (e) {
       console.error('gagal simpan scan GMGN:', (e as Error).message);
     }
+  }
+
+  /** Hapus token GMGN yang tidak pernah dibeli dan lebih lama dari `before`, lalu scan yang jadi kosong. */
+  async pruneUnbought(before: Date) {
+    let tokens = 0;
+    // Per batch supaya backlog besar tidak mengunci tabel lama.
+    while (true) {
+      const n = await this.repo.pruneUnboughtTokens(before, PRUNE_BATCH);
+      tokens += n;
+      if (n < PRUNE_BATCH) break;
+    }
+    const scans = await this.repo.pruneEmptyScans(before);
+    return { tokens, scans };
   }
 
   reviewed(accountId: number, token: HotToken, mode: TradeMode, d: ReviewedDecision) {

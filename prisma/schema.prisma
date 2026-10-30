@@ -176,5 +176,6 @@ model GmgnToken {
 
   @@index([mint])
   @@index([scanId])
+  @@index([createdAt])
   @@map("gmgn_tokens")
 }

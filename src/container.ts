@@ -31,6 +31,7 @@ import { MonitorService } from './modules/bot/monitor.service.ts';
 import { PricesService } from './modules/prices/prices.service.ts';
 import { PricesController } from './modules/prices/prices.controller.ts';
 import { BotScheduler } from './modules/bot/bot.scheduler.ts';
+import { RetentionScheduler } from './modules/bot/retention.scheduler.ts';
 import { BotService } from './modules/bot/bot.service.ts';
 import { BotController } from './modules/bot/bot.controller.ts';
 
@@ -67,12 +68,14 @@ export function createContainer() {
   const monitor = new MonitorService(state, prices, priceStream, positionsRepo, settings, trading, logs, livePrices);
   priceStream.onQuote((mint, quote) => void monitor.handleQuote(mint, quote));
   const scheduler = new BotScheduler(state, settings, accounts, scanner, monitor);
+  const retention = new RetentionScheduler(logs, snapshots);
   const bot = new BotService(state, settings, accounts, positions, positionsRepo, scheduler, scanner, solana, logs);
 
   return {
     prisma,
     accounts,
     scheduler,
+    retention,
     priceStream,
     bot,
     controllers: {
