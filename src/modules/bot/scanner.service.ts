@@ -111,7 +111,10 @@ export class ScannerService {
     }
   }
 
-  /** Daftar kombo yang dipakai mengikuti cek AI. Id kombo yang cocok disimpan di token.info. */
+  /**
+   * Daftar kombo yang dipakai mengikuti cek AI. Id kombo yang cocok disimpan di token.info.
+   * Token harus cocok tepat satu kombo: cocok lebih dari satu dianggap ambigu dan dilewati.
+   */
   private applyCombos(tokens: HotToken[], settings: BotSettings) {
     const selected = settings.aiAgentEnabled ? settings.combos.ai : settings.combos.nonAi;
     const which = settings.aiAgentEnabled ? 'AI' : 'non-AI';
@@ -120,8 +123,12 @@ export class ScannerService {
     for (const token of tokens) {
       const matched = matchCombos(token, selected);
       token.info.combos = matched.map((c) => c.id);
-      if (matched.length > 0) passed.push(token);
-      else rejected.set(token.mint, [selected.length === 0 ? `Belum ada kombo ${which} dipilih` : `Tidak cocok kombo ${which}`]);
+      if (matched.length === 1) passed.push(token);
+      else if (matched.length > 1) {
+        rejected.set(token.mint, [`Cocok ${matched.length} kombo ${which} (${comboLabels(token.info.combos)}), dilewati`]);
+      } else {
+        rejected.set(token.mint, [selected.length === 0 ? `Belum ada kombo ${which} dipilih` : `Tidak cocok kombo ${which}`]);
+      }
     }
     return { passed, rejected };
   }

@@ -16,8 +16,9 @@ export const hotSearchFilterSchema = z.object({
 });
 
 /**
- * Kombo win cluster per mode AI (lihat combos.ts). Token dibeli kalau cocok dengan salah satu kombo terpilih
- * di daftar yang aktif: `ai` saat aiAgentEnabled, `nonAi` saat tidak. Daftar kosong = tidak ada buy.
+ * Kombo win cluster per mode AI (lihat combos.ts). Token dibeli kalau cocok tepat satu kombo terpilih
+ * di daftar yang aktif: `ai` saat aiAgentEnabled, `nonAi` saat tidak. Cocok lebih dari satu kombo = skip.
+ * Daftar kosong = tidak ada buy.
  */
 export const combosSchema = z.object({
   ai: z.array(z.enum(AI_COMBO_IDS)).default([]),

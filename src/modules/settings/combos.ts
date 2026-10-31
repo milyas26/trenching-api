@@ -25,6 +25,8 @@ const dexRatio = (t: HotToken) => {
   const tx = t.info.dexTxns1h;
   return tx && tx.sells > 0 ? tx.buys / tx.sells : null;
 };
+const top10CtoNo = (t: HotToken) => inRange(t.info.top10Pct, 30) && t.info.communityTakeover === false;
+const devsoldNoPhishing2 = (t: HotToken) => t.info.devSold === false && inRange(t.info.phishingPct, 0, 2);
 
 export const COMBOS: ComboDef[] = [
   { id: 'ai-mc-180-250', group: 'ai', label: 'MC 180–250K', win: 13, trades: 17,
@@ -42,12 +44,29 @@ export const COMBOS: ComboDef[] = [
 
   { id: 'nonai-smart5-15-devsold-no', group: 'nonAi', label: 'Smart money 5–14 + dev belum jual', win: 25, trades: 34,
     match: (t) => inRange(t.info.smartMoneyCount, 5, 15) && t.info.devSold === false },
+  /**
+   * Versi ketat dari kombo di atas: bundler <10%. Statistik katalog dari database micin-agent
+   * (semua akun, semua trade closed): 49 dari 96 trade profit, net -1,43 SOL. Di thearc subset
+   * ini 8 dari 9 trade profit (+3,97 SOL), tapi data micin-agent belum menunjukkan profit bersih.
+   */
+  { id: 'nonai-smart5-15-devsold-no-bundler10', group: 'nonAi', label: 'Smart money 5–14 + dev belum jual + bundler <10%', win: 49, trades: 96,
+    match: (t) => inRange(t.info.smartMoneyCount, 5, 15) && t.info.devSold === false && inRange(t.info.bundlerPct, 0, 10) },
   { id: 'nonai-top10-30-devsold-no', group: 'nonAi', label: 'Top 10 ≥30% + dev belum jual', win: 16, trades: 22,
     match: (t) => inRange(t.info.top10Pct, 30) && t.info.devSold === false },
   { id: 'nonai-top10-30-buys300-1k', group: 'nonAi', label: 'Top 10 ≥30% + buys 300–999', win: 13, trades: 18,
     match: (t) => inRange(t.info.top10Pct, 30) && inRange(dexBuys(t), 300, 1000) },
+  /**
+   * Pola A/B dari analisa 442 trade: A = 29/44, B = 34/59, gabungan A atau B = 59/95 (+7,22 SOL).
+   * Statistik memakai basis analisa yang sama dengan kombo lama. Uji holdout 761 trade belum
+   * mengonfirmasi hasil ini, jadi anggap hipotesis. Pilih kombo gabungan kalau mau A dan B sekaligus:
+   * kalau A dan B dicentang bersamaan, token yang cocok keduanya dilewati sebagai ambigu.
+   */
   { id: 'nonai-top10-30-cto-no', group: 'nonAi', label: 'Top 10 ≥30% + bukan CTO', win: 29, trades: 44,
-    match: (t) => inRange(t.info.top10Pct, 30) && t.info.communityTakeover === false },
+    match: top10CtoNo },
+  { id: 'nonai-devsold-no-phishing2', group: 'nonAi', label: 'Dev belum jual + phishing <2%', win: 34, trades: 59,
+    match: devsoldNoPhishing2 },
+  { id: 'nonai-top10-30-cto-no-or-devsold-no-phishing2', group: 'nonAi', label: 'Top 10 ≥30% + bukan CTO, atau dev belum jual + phishing <2%', win: 59, trades: 95,
+    match: (t) => top10CtoNo(t) || devsoldNoPhishing2(t) },
   { id: 'nonai-swaps300-ratio1.2', group: 'nonAi', label: 'Swaps <300 + rasio buy/sell <1,2', win: 20, trades: 31,
     match: (t) => inRange(t.info.swaps1h, 0, 300) && inRange(dexRatio(t), 0, 1.2) },
   { id: 'nonai-sells300-devsold-no', group: 'nonAi', label: 'Sells <300 + dev belum jual', win: 27, trades: 42,
