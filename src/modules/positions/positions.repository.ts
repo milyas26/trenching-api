@@ -28,8 +28,8 @@ const RANGE_SQL: Record<HistoryRangeKey, string> = {
   holdMinutes: 'EXTRACT(EPOCH FROM (closed_at - opened_at)) / 60',
 };
 
-/** Kondisi WHERE riwayat (akun, status selesai, mode, range, flag), dipakai daftar dan ringkasan. */
-function historyConditions({ accountId, mode, ranges, flags }: Omit<PositionHistoryQuery, 'cursor' | 'limit'>) {
+/** Kondisi WHERE riwayat (akun, status selesai, mode, range, flag, kombo), dipakai daftar dan ringkasan. */
+function historyConditions({ accountId, mode, ranges, flags, combo }: Omit<PositionHistoryQuery, 'cursor' | 'limit'>) {
   const conditions = [
     Prisma.sql`account_id = ${accountId}`,
     Prisma.sql`status::text IN (${Prisma.join(FINISHED_STATUSES)})`,
@@ -44,6 +44,9 @@ function historyConditions({ accountId, mode, ranges, flags }: Omit<PositionHist
   for (const key of HISTORY_FLAG_KEYS) {
     const value = flags[key];
     if (value !== undefined) conditions.push(Prisma.sql`token_info->${key} = to_jsonb(${value}::boolean)`);
+  }
+  if (combo) {
+    conditions.push(Prisma.sql`jsonb_typeof(token_info->'combos') = 'array' AND jsonb_exists(token_info->'combos', ${combo})`);
   }
   return conditions;
 }
@@ -109,7 +112,7 @@ export class PositionsRepository implements IPositionsRepository {
     return row!;
   }
 
-  dailyPnl({ accountId, mode, tz, from, to, ranges, flags }: DailyPnlQuery) {
+  dailyPnl({ accountId, mode, tz, from, to, ranges, flags, combo }: DailyPnlQuery) {
     const day = closedDay(tz);
     return this.db.$queryRaw<DailyPnl[]>`
       SELECT
@@ -119,7 +122,7 @@ export class PositionsRepository implements IPositionsRepository {
         count(*) FILTER (WHERE pnl_sol < 0)::int AS losses,
         COALESCE(sum(pnl_sol), 0)::float8 AS "pnlSol"
       FROM positions
-      WHERE ${Prisma.join(historyConditions({ accountId, mode, ranges, flags }), ' AND ')}
+      WHERE ${Prisma.join(historyConditions({ accountId, mode, ranges, flags, combo }), ' AND ')}
         AND status::text = 'closed' AND closed_at IS NOT NULL
         AND ${day} BETWEEN ${from}::date AND ${to}::date
       GROUP BY 1
@@ -127,11 +130,11 @@ export class PositionsRepository implements IPositionsRepository {
     `;
   }
 
-  closedTrades({ accountId, mode, tz, from, to, ranges, flags }: DailyPnlQuery) {
+  closedTrades({ accountId, mode, tz, from, to, ranges, flags, combo }: DailyPnlQuery) {
     return this.db.$queryRaw<ClosedTrade[]>`
       SELECT id, mint, symbol, name, logo, COALESCE(pnl_sol, 0)::float8 AS "pnlSol", pnl_pct AS "pnlPct", closed_at AS "closedAt"
       FROM positions
-      WHERE ${Prisma.join(historyConditions({ accountId, mode, ranges, flags }), ' AND ')}
+      WHERE ${Prisma.join(historyConditions({ accountId, mode, ranges, flags, combo }), ' AND ')}
         AND status::text = 'closed' AND closed_at IS NOT NULL
         AND ${closedDay(tz)} BETWEEN ${from}::date AND ${to}::date
       ORDER BY closed_at, id

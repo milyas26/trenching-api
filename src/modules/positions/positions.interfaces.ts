@@ -42,6 +42,8 @@ export interface PositionHistoryQuery {
   /** Posisi tanpa nilai untuk field yang disaring (range maupun flag) ikut tersaring keluar. */
   ranges: HistoryRanges;
   flags: HistoryFlags;
+  /** Id kombo yang harus ada di token_info.combos. Kosong = semua kombo. */
+  combo?: string;
   /** Id posisi terakhir dari halaman sebelumnya; kosong = halaman pertama. */
   cursor?: number;
   limit: number;
@@ -86,6 +88,7 @@ export interface DailyPnlQuery {
   /** Filter yang sama dengan riwayat posisi. */
   ranges: HistoryRanges;
   flags: HistoryFlags;
+  combo?: string;
 }
 
 /** PnL posisi closed yang ditutup pada satu tanggal; hari tanpa posisi closed tidak muncul. */

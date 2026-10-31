@@ -12,6 +12,7 @@ const listQuery = z.object({
 });
 const historyQuery = z.object({
   mode: z.enum(['paper', 'real']).optional(),
+  combo: z.string().trim().min(1).max(100).optional(),
   cursor: z.coerce.number().int().positive().optional(),
   limit: z.coerce.number().int().min(1).max(100).default(20),
 });
@@ -26,6 +27,7 @@ const flagQuery = z.object(Object.fromEntries(
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Format tanggal YYYY-MM-DD');
 const dailyQuery = z.object({
   mode: z.enum(['paper', 'real']),
+  combo: z.string().trim().min(1).max(100).optional(),
   tz: z.string().max(64).refine(isTimeZone, 'Zona waktu tidak dikenal').default('UTC'),
   from: isoDate,
   to: isoDate,
