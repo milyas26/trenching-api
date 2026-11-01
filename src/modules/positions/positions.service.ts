@@ -1,6 +1,6 @@
 import { notFound } from '../../common/errors.ts';
 import type {
-  BuyReasonDto, ClosedTrade, DailyPnl, DailyPnlQuery, IPositionsRepository, ListPositionsQuery, PositionDto, PositionHistoryPage, PositionHistoryQuery, PositionStats,
+  BuyReasonDto, ClosedTrade, ClosedTradesQuery, DailyPnl, DailyPnlQuery, IPositionsRepository, ListPositionsQuery, PositionDto, PositionHistoryPage, PositionHistoryQuery, PositionStats,
 } from './positions.interfaces.ts';
 import { toPositionDto } from './positions.mapper.ts';
 import type { BotSettings } from '../settings/settings.interfaces.ts';
@@ -26,7 +26,7 @@ export class PositionsService {
     return { days: await this.repo.dailyPnl(query) };
   }
 
-  async trades(query: DailyPnlQuery): Promise<{ trades: ClosedTrade[] }> {
+  async trades(query: ClosedTradesQuery): Promise<{ trades: ClosedTrade[] }> {
     return { trades: await this.repo.closedTrades(query) };
   }
 

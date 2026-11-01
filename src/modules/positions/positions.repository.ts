@@ -2,7 +2,7 @@ import { Prisma } from '../../generated/prisma/client.ts';
 import type { PrismaClient } from '../../lib/prisma.ts';
 import {
   ACTIVE_STATUSES, FINISHED_STATUSES, HISTORY_FLAG_KEYS, HISTORY_TOKEN_INFO_KEYS,
-  type BuyReasonDto, type ClosedPositionData, type ClosedTrade, type DailyPnl, type DailyPnlQuery, type HistoryRangeKey, type HistorySummary, type IPositionsRepository, type ListPositionsQuery,
+  type BuyReasonDto, type ClosedPositionData, type ClosedTrade, type ClosedTradesQuery, type DailyPnl, type DailyPnlQuery, type HistoryRangeKey, type HistorySummary, type IPositionsRepository, type ListPositionsQuery,
   type ModeStats, type NewPosition, type OpenedPositionData, type Position, type PositionHistoryQuery, type TradeMode,
 } from './positions.interfaces.ts';
 
@@ -130,13 +130,16 @@ export class PositionsRepository implements IPositionsRepository {
     `;
   }
 
-  closedTrades({ accountId, mode, tz, from, to, ranges, flags, combo }: DailyPnlQuery) {
+  closedTrades({ accountId, mode, tz, from, to, ranges, flags, combo }: ClosedTradesQuery) {
+    const conditions = [
+      ...historyConditions({ accountId, mode, ranges, flags, combo }),
+      Prisma.sql`status::text = 'closed' AND closed_at IS NOT NULL`,
+    ];
+    if (from && to) conditions.push(Prisma.sql`${closedDay(tz)} BETWEEN ${from}::date AND ${to}::date`);
     return this.db.$queryRaw<ClosedTrade[]>`
       SELECT id, mint, symbol, name, logo, COALESCE(pnl_sol, 0)::float8 AS "pnlSol", pnl_pct AS "pnlPct", closed_at AS "closedAt"
       FROM positions
-      WHERE ${Prisma.join(historyConditions({ accountId, mode, ranges, flags, combo }), ' AND ')}
-        AND status::text = 'closed' AND closed_at IS NOT NULL
-        AND ${closedDay(tz)} BETWEEN ${from}::date AND ${to}::date
+      WHERE ${Prisma.join(conditions, ' AND ')}
       ORDER BY closed_at, id
     `;
   }

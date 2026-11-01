@@ -32,6 +32,16 @@ const dailyQuery = z.object({
   from: isoDate,
   to: isoDate,
 }).refine((q) => q.from <= q.to, { message: 'harus sebelum atau sama dengan to', path: ['from'] });
+/** from dan to opsional untuk grafik per token: keduanya kosong berarti semua riwayat. */
+const tradesQuery = z.object({
+  mode: z.enum(['paper', 'real']),
+  combo: z.string().trim().min(1).max(100).optional(),
+  tz: z.string().max(64).refine(isTimeZone, 'Zona waktu tidak dikenal').default('UTC'),
+  from: isoDate.optional(),
+  to: isoDate.optional(),
+})
+  .refine((q) => (q.from === undefined) === (q.to === undefined), { message: 'from dan to harus diisi bersama', path: ['from'] })
+  .refine((q) => !q.from || !q.to || q.from <= q.to, { message: 'harus sebelum atau sama dengan to', path: ['from'] });
 const idParams = z.object({ id: z.coerce.number().int().positive() });
 
 function isTimeZone(tz: string) {
@@ -82,7 +92,7 @@ export class PositionsController {
   trades = (req: FastifyRequest) =>
     this.positions.trades({
       accountId: accountIdOf(req),
-      ...dailyQuery.parse(req.query),
+      ...tradesQuery.parse(req.query),
       ranges: parseRanges(req.query),
       flags: flagQuery.parse(req.query),
     });

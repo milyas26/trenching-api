@@ -91,6 +91,9 @@ export interface DailyPnlQuery {
   combo?: string;
 }
 
+/** Sama dengan DailyPnlQuery, tapi tanpa from dan to berarti semua riwayat. */
+export type ClosedTradesQuery = Omit<DailyPnlQuery, 'from' | 'to'> & { from?: string; to?: string };
+
 /** PnL posisi closed yang ditutup pada satu tanggal; hari tanpa posisi closed tidak muncul. */
 export interface DailyPnl {
   /** YYYY-MM-DD di zona waktu query. */
@@ -191,8 +194,8 @@ export interface IPositionsRepository {
   historySummary(query: Omit<PositionHistoryQuery, 'cursor' | 'limit'>): Promise<HistorySummary>;
   /** PnL closed per tanggal dalam rentang, urut tanggal. */
   dailyPnl(query: DailyPnlQuery): Promise<DailyPnl[]>;
-  /** Posisi closed dalam rentang tanggal yang sama dengan dailyPnl, urut waktu tutup dari yang paling awal. */
-  closedTrades(query: DailyPnlQuery): Promise<ClosedTrade[]>;
+  /** Posisi closed (dalam rentang tanggal kalau ada), urut waktu tutup dari yang paling awal. */
+  closedTrades(query: ClosedTradesQuery): Promise<ClosedTrade[]>;
   /** Semua mint yang pernah dicoba buy oleh akun ini, paper maupun real, termasuk yang gagal. */
   boughtMints(accountId: number): Promise<Set<string>>;
   /** Tanpa mode = semua mode. */
