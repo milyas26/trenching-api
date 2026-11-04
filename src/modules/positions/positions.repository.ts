@@ -3,7 +3,7 @@ import type { PrismaClient } from '../../lib/prisma.ts';
 import {
   ACTIVE_STATUSES, FINISHED_STATUSES, HISTORY_FLAG_KEYS, HISTORY_TOKEN_INFO_KEYS,
   type BuyReasonDto, type ClosedPositionData, type ClosedTrade, type ClosedTradesQuery, type DailyPnl, type DailyPnlQuery, type HistoryRangeKey, type HistorySummary, type IPositionsRepository, type ListPositionsQuery,
-  type ModeStats, type NewPosition, type OpenedPositionData, type Position, type PositionHistoryQuery, type TradeMode,
+  type ModeStats, type NewPosition, type OpenedPositionData, type Position, type PositionHistoryQuery, type RealLegStats, type TradeMode,
 } from './positions.interfaces.ts';
 
 /** Hanya nilai JSON bertipe number yang di-cast, supaya data lama yang aneh tidak membuat query error. */
@@ -189,13 +189,14 @@ export class PositionsRepository implements IPositionsRepository {
     }
   }
 
-  async markOpen(id: number, { entryPrice, supply, buySignature }: OpenedPositionData) {
+  async markOpen(id: number, { entryPrice, supply, buySignature, realLeg }: OpenedPositionData) {
     await this.db.position.update({
       where: { id },
       data: {
         status: 'open', entryPrice, currentPrice: entryPrice, highPrice: entryPrice, lowPrice: entryPrice,
         supply, entryMc: supply ? entryPrice * supply : undefined,
         pnlPct: 0, buySignature, priceUpdatedAt: new Date(),
+        ...realLeg,
       },
     });
   }
@@ -293,5 +294,29 @@ export class PositionsRepository implements IPositionsRepository {
     for (const l of losses) result[l.mode].losses = l._count._all;
     for (const p of open) result[p.mode].unrealizedSol += p.amountSol * ((p.pnlPct ?? 0) / 100);
     return result;
+  }
+
+  async realLegStats(accountId: number): Promise<RealLegStats> {
+    const rows = await this.db.position.findMany({
+      where: { accountId, realStatus: { not: null } },
+      select: { status: true, realStatus: true, realAmountSol: true, realPnlSol: true, pnlPct: true },
+    });
+    const stats: RealLegStats = { open: 0, closed: 0, failed: 0, wins: 0, losses: 0, lockedSol: 0, realizedSol: 0, unrealizedSol: 0 };
+    for (const r of rows) {
+      const amount = r.realAmountSol ?? 0;
+      if (r.realStatus === 'failed') stats.failed++;
+      else if (r.realStatus === 'closed') {
+        const pnl = r.realPnlSol ?? 0;
+        stats.closed++;
+        stats.realizedSol += pnl;
+        if (pnl > 0) stats.wins++;
+        else if (pnl < 0) stats.losses++;
+      } else {
+        stats.open++;
+        stats.lockedSol += amount;
+        if (r.status === 'open') stats.unrealizedSol += amount * ((r.pnlPct ?? 0) / 100);
+      }
+    }
+    return stats;
   }
 }

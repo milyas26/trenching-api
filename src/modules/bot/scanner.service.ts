@@ -80,7 +80,8 @@ export class ScannerService {
       // Token yang pernah dibeli akun ini di mode mana pun tidak dibeli lagi.
       const known = await this.positions.boughtMints(accountId);
       const fresh = passed.filter((t) => !known.has(t.mint));
-      const active = await this.positions.countActive(accountId, settings.mode);
+      // Posisi baru selalu paper; posisi mode real lama yang masih open ikut dihitung.
+      const active = await this.positions.countActive(accountId);
       const slots = Math.max(0, Math.min(settings.maxOpenPositions - active, settings.maxBuysPerScan));
       await log.info(
         `Scan ${TOKEN_SOURCE_LABEL[settings.source]}: ${scan.tokens.length} token dari GMGN, ${passed.length} cocok kombo, `

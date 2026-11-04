@@ -10,7 +10,11 @@ const createBody = z.object({
 }).strict();
 const updateBody = z.object({
   name: z.string().max(40).optional(),
-  credentials: z.object({ apiKey: z.string().max(200), wallet: z.string().max(64) }).nullable().optional(),
+  credentials: z.object({
+    // API key Lightning PumpPortal bisa lebih dari 200 karakter.
+    apiKey: z.string().trim().max(2000).regex(/^\S*$/, 'API key PumpPortal tidak boleh mengandung spasi atau baris baru'),
+    wallet: z.string().trim().regex(/^([1-9A-HJ-NP-Za-km-z]{32,44})?$/, 'Wallet harus alamat publik Solana (base58, 32-44 karakter)'),
+  }).nullable().optional(),
 }).strict();
 
 export class AccountsController {

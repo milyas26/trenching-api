@@ -1,5 +1,5 @@
 import type { PriceSource } from '../../integrations/dexscreener/dexscreener.types.ts';
-import type { IPositionsRepository, ExitReason, TradeMode } from '../positions/positions.interfaces.ts';
+import type { IPositionsRepository, ExitReason, Position, RealLegData, TradeMode } from '../positions/positions.interfaces.ts';
 import type { PositionsService } from '../positions/positions.service.ts';
 import type { LogsService } from '../logs/logs.service.ts';
 import type { SettingsService } from '../settings/settings.service.ts';
@@ -8,6 +8,7 @@ import type { AccountsService } from '../accounts/accounts.service.ts';
 import { conflict } from '../../common/errors.ts';
 import { pnlPct } from './exit-rules.ts';
 import { ogTakeProfit } from './og-rule.ts';
+import { realBuyMisses } from './real-buy-rule.ts';
 import { NoTokensError, type BuyCandidate, type TradeContext, type TradeExecutor } from './trading.interfaces.ts';
 
 const shortMint = (mint: string) => `${mint.slice(0, 4)}…${mint.slice(-4)}`;
@@ -22,7 +23,11 @@ export const priceDeviates = (quotePrice: number, gmgnPrice: number) =>
 export const buyAmount = (s: BotSettings, availableSol: number) =>
   s.buySizeMode === 'pct' ? Math.floor(availableSol * s.buyAmountPct * 100) / 1e4 : s.buyAmountSol;
 
-/** Buka/tutup posisi. Satu-satunya tempat yang memanggil executor (paper/real). */
+/**
+ * Buka/tutup posisi. Satu-satunya tempat yang memanggil executor.
+ * Posisi baru selalu paper. Di akun mode real, token yang cocok settings.realBuy juga dibeli di wallet asli;
+ * buy real itu menempel di posisi paper yang sama dan ikut dijual saat posisi ditutup.
+ */
 export class TradingService {
   private readonly executors: Record<TradeMode, TradeExecutor>;
 
@@ -42,25 +47,16 @@ export class TradingService {
     return { ...settings, ...(await this.accounts.credentials(accountId)) };
   }
 
-  /** @returns false kalau saldo tidak cukup, supaya pemanggil berhenti mencoba token lain. */
+  /** @returns false kalau saldo paper tidak cukup, supaya pemanggil berhenti mencoba token lain. */
   async open(accountId: number, token: BuyCandidate, settings: BotSettings): Promise<boolean> {
-    const { mode } = settings;
-    const label = `${token.symbol ?? shortMint(token.mint)} [${mode}]`;
+    const label = `${token.symbol ?? shortMint(token.mint)} [paper]`;
     const log = this.logs.for(accountId);
 
-    const ctx = await this.context(accountId, settings);
     // Cek sebelum claim: kalau tidak, token ini tercatat failed dan tidak akan pernah dibeli lagi.
-    const available = mode === 'paper'
-      ? await this.positions.paperBalance(accountId, settings)
-      : ((await this.executors[mode].maxBuySol(ctx).catch(async (e: Error) => {
-          await log.error(`Cek saldo wallet gagal, buy ${label} dilewati: ${e.message}`);
-          return 0;
-        })) ?? 0);
+    const available = await this.positions.paperBalance(accountId, settings);
     const amountSol = buyAmount(settings, available);
     if (amountSol <= 0 || available < amountSol) {
-      await log.warn(mode === 'paper'
-        ? `Saldo paper tidak cukup untuk buy ${label}: tersedia ${available.toFixed(4)} SOL`
-        : `Saldo wallet tidak cukup untuk buy ${label}: maks ${available.toFixed(4)} SOL setelah fee`);
+      await log.warn(`Saldo paper tidak cukup untuk buy ${label}: tersedia ${available.toFixed(4)} SOL`);
       return false;
     }
 
@@ -73,20 +69,24 @@ export class TradingService {
       );
       return true;
     }
+    const refPrice = preQuote?.priceUsd ?? token.price;
 
     // Disimpan di posisi supaya TP-nya tetap walau pengaturan OG diubah setelah beli.
     const ogTp = ogTakeProfit(token.info, token.mc, settings);
     // Klaim mint dulu (unique akun+mode+mint) supaya token yang sama tidak pernah dibeli dua kali.
     const id = await this.repo.claim({
-      accountId, mode, mint: token.mint, symbol: token.symbol, name: token.name, logo: token.logo,
+      accountId, mode: 'paper', mint: token.mint, symbol: token.symbol, name: token.name, logo: token.logo,
       amountSol, entryMc: token.mc, tokenInfo: token.info, takeProfitPct: ogTp,
     });
     if (id === null) return true;
 
     try {
-      const signature = await this.executors[mode].buy(token.mint, amountSol, ctx);
+      // Buy real dulu (bisa sampai 60 detik menunggu konfirmasi), supaya entry paper diambil setelah buy real masuk
+      // dan posisi baru bisa ditutup setelah buy real selesai. Gagal real tidak menggagalkan posisi paper.
+      const realLeg = settings.mode === 'real' && refPrice ? await this.buyRealLeg(accountId, token, settings) : null;
+
       const quote = (await this.prices.getQuotes([token.mint]).catch(() => null))?.get(token.mint);
-      const entry = quote?.priceUsd ?? token.price;
+      const entry = quote?.priceUsd ?? token.price ?? refPrice;
       if (!entry) throw new Error('harga entry tidak tersedia');
 
       // Supply tetap, jadi market cap = harga x supply untuk semua harga berikutnya.
@@ -94,9 +94,10 @@ export class TradingService {
         ? quote.marketCap / quote.priceUsd
         : token.mc && token.price ? token.mc / token.price : null;
 
-      await this.repo.markOpen(id, { entryPrice: entry, supply, buySignature: signature });
+      await this.repo.markOpen(id, { entryPrice: entry, supply, buySignature: null, realLeg });
       await log.buy(
-        `BUY ${label} ${amountSol} SOL${settings.buySizeMode === 'pct' ? ` (${settings.buyAmountPct}% saldo)` : ''} @ $${entry}${ogTp === null ? '' : ` | token OG, TP ${ogTp}%`}${signature ? ` sig ${signature}` : ''}`,
+        `BUY ${label} ${amountSol} SOL${settings.buySizeMode === 'pct' ? ` (${settings.buyAmountPct}% saldo)` : ''} @ $${entry}${ogTp === null ? '' : ` | token OG, TP ${ogTp}%`}`
+          + (realLeg?.realStatus === 'open' ? ` | + real ${realLeg.realAmountSol} SOL` : ''),
       );
     } catch (e) {
       const message = (e as Error).message;
@@ -104,6 +105,34 @@ export class TradingService {
       await log.error(`BUY ${label} gagal: ${message}`);
     }
     return true;
+  }
+
+  /** null = token tidak cocok syarat buy real (tidak ada buy real). Gagal dicatat sebagai realStatus failed. */
+  private async buyRealLeg(accountId: number, token: BuyCandidate, settings: BotSettings): Promise<RealLegData | null> {
+    const label = `${token.symbol ?? shortMint(token.mint)} [real]`;
+    const log = this.logs.for(accountId);
+    const misses = realBuyMisses(token.info, settings);
+    if (misses.length > 0) {
+      await log.info(`${label} tidak cocok syarat buy real (${misses.join(', ')}), paper saja`);
+      return null;
+    }
+
+    const amountSol = settings.realBuy.amountSol;
+    const failed = async (error: string): Promise<RealLegData> => {
+      await log.error(`BUY ${label} gagal, posisi paper tetap dibuka: ${error}`);
+      return { realStatus: 'failed', realAmountSol: amountSol, realError: error };
+    };
+
+    try {
+      const ctx = await this.context(accountId, settings);
+      const max = (await this.executors.real.maxBuySol(ctx)) ?? 0;
+      if (max < amountSol) return failed(`saldo wallet kurang: maks ${max.toFixed(4)} SOL setelah fee`);
+      const signature = await this.executors.real.buy(token.mint, amountSol, ctx);
+      await log.buy(`BUY ${label} ${amountSol} SOL${signature ? ` sig ${signature}` : ''}`);
+      return { realStatus: 'open', realAmountSol: amountSol, realBuySignature: signature };
+    } catch (e) {
+      return failed((e as Error).message);
+    }
   }
 
   async close(id: number, reason: ExitReason, priceHint?: number): Promise<void> {
@@ -117,11 +146,15 @@ export class TradingService {
       const price = priceHint ?? (await this.prices.getPrice(pos.mint)) ?? pos.currentPrice;
       if (!price || !pos.entryPrice) throw new Error('harga exit tidak tersedia');
 
-      const sellSignature = await this.executors[pos.mode].sellAll(pos.mint, await this.context(pos.accountId, settings));
+      const ctx = await this.context(pos.accountId, settings);
+      // Posisi mode real lama dijual lewat executor real; posisi paper tidak punya transaksi.
+      const sellSignature = await this.executors[pos.mode].sellAll(pos.mint, ctx);
       const pct = pnlPct(pos.entryPrice, price);
       const pnlSol = pos.amountSol * (pct / 100);
+      // Kalau sell real gagal (selain token tidak ada), error dilempar dan seluruh posisi dicoba lagi.
+      const realLeg = pos.realStatus === 'open' ? await this.sellRealLeg(pos, ctx, pct) : {};
 
-      await this.repo.markClosed(id, { exitPrice: price, exitReason: reason, pnlPct: pct, pnlSol, sellSignature });
+      await this.repo.markClosed(id, { exitPrice: price, exitReason: reason, pnlPct: pct, pnlSol, sellSignature, ...realLeg });
       await log.sell(
         `SELL ${label} (${reason}) @ $${price} | PnL ${pct.toFixed(2)}% (${pnlSol.toFixed(4)} SOL)`
           + (sellSignature ? ` sig ${sellSignature}` : ''),
@@ -137,6 +170,22 @@ export class TradingService {
       await this.repo.revertToOpen(id, message);
       await log.error(`SELL ${label} gagal: ${message}`);
       throw e;
+    }
+  }
+
+  private async sellRealLeg(pos: Position, ctx: TradeContext, pct: number) {
+    const label = `${pos.symbol ?? shortMint(pos.mint)} [real]`;
+    const log = this.logs.for(pos.accountId);
+    try {
+      const realSellSignature = await this.executors.real.sellAll(pos.mint, ctx);
+      const realPnlSol = (pos.realAmountSol ?? 0) * (pct / 100);
+      await log.sell(`SELL ${label} | perkiraan PnL ${realPnlSol.toFixed(4)} SOL${realSellSignature ? ` sig ${realSellSignature}` : ''}`);
+      return { realStatus: 'closed' as const, realSellSignature, realPnlSol };
+    } catch (e) {
+      // Token sudah tidak ada di wallet: buy real tidak pernah masuk atau sudah dijual manual. Posisi paper tetap ditutup.
+      if (!(e instanceof NoTokensError)) throw e;
+      await log.warn(`SELL ${label} dilewati: ${e.message}`);
+      return { realStatus: 'failed' as const, realError: e.message };
     }
   }
 }

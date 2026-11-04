@@ -37,10 +37,11 @@ export class PositionsService {
   }
 
   async stats(accountId: number, settings: BotSettings): Promise<PositionStats> {
-    const { paper, real } = await this.repo.allModeStats(accountId);
+    const [{ paper, real }, realLeg] = await Promise.all([this.repo.allModeStats(accountId), this.repo.realLegStats(accountId)]);
     return {
       paper: { ...paper, balanceSol: settings.paperStartBalanceSol + paper.realizedSol - paper.lockedSol },
       real,
+      realLeg,
     };
   }
 

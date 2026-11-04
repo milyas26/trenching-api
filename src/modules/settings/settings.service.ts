@@ -1,4 +1,4 @@
-import { notFound } from '../../common/errors.ts';
+import { badRequest, notFound } from '../../common/errors.ts';
 import { botSettingsSchema } from './settings.schema.ts';
 import type { BotSettings, ISettingsRepository, SettingsPatch } from './settings.interfaces.ts';
 
@@ -28,7 +28,15 @@ export class SettingsService {
       filter: { ...current.filter, ...patch.filter },
       combos: { ...current.combos, ...patch.combos },
       ogRule: { ...current.ogRule, ...patch.ogRule },
+      realBuy: { ...current.realBuy, ...patch.realBuy },
     }) as BotSettings;
+    const { minBundlerPct, maxBundlerPct, minAgeMinutes, maxAgeMinutes } = next.realBuy;
+    if (minBundlerPct !== null && maxBundlerPct !== null && minBundlerPct > maxBundlerPct) {
+      throw badRequest('Bundler min buy real lebih besar dari max');
+    }
+    if (minAgeMinutes !== null && maxAgeMinutes !== null && minAgeMinutes > maxAgeMinutes) {
+      throw badRequest('Umur token min buy real lebih besar dari max');
+    }
     await this.repo.saveSettings(accountId, next);
     this.cache.set(accountId, next);
     return next;

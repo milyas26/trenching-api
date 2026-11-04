@@ -1,8 +1,8 @@
 import type { Position } from '../../generated/prisma/client.ts';
-import type { ExitReason, PositionStatus, TradeMode } from '../../generated/prisma/enums.ts';
+import type { ExitReason, PositionStatus, RealLegStatus, TradeMode } from '../../generated/prisma/enums.ts';
 import type { TokenInfo } from '../../integrations/gmgn/gmgn.types.ts';
 
-export type { Position, ExitReason, PositionStatus, TradeMode };
+export type { Position, ExitReason, PositionStatus, RealLegStatus, TradeMode };
 
 export const ACTIVE_STATUSES: PositionStatus[] = ['opening', 'open', 'closing'];
 export const FINISHED_STATUSES: PositionStatus[] = ['closed', 'failed'];
@@ -134,6 +134,8 @@ export interface OpenedPositionData {
   entryPrice: number;
   supply: number | null;
   buySignature: string | null;
+  /** Ada kalau buy real ikut dijalankan untuk posisi paper ini. */
+  realLeg?: RealLegData | null;
 }
 
 /** Posisi untuk response API: market cap diturunkan dari harga x supply. */
@@ -144,12 +146,38 @@ export interface PositionDto extends Position {
   exitMc: number | null;
 }
 
+/** Hasil buy real yang menempel di posisi paper. */
+export interface RealLegData {
+  realStatus: RealLegStatus;
+  realAmountSol: number;
+  realBuySignature?: string | null;
+  realError?: string | null;
+}
+
 export interface ClosedPositionData {
   exitPrice: number;
   exitReason: ExitReason;
   pnlPct: number;
   pnlSol: number;
   sellSignature: string | null;
+  realStatus?: RealLegStatus;
+  realSellSignature?: string | null;
+  realPnlSol?: number | null;
+  realError?: string | null;
+}
+
+/** Ringkasan buy real yang menempel di posisi paper. */
+export interface RealLegStats {
+  open: number;
+  closed: number;
+  failed: number;
+  wins: number;
+  losses: number;
+  /** Modal SOL di buy real yang masih open. */
+  lockedSol: number;
+  /** Perkiraan dari PnL % posisi paper. */
+  realizedSol: number;
+  unrealizedSol: number;
 }
 
 export interface ModeStats {
@@ -184,7 +212,9 @@ export interface BuyReasonDto {
 
 export interface PositionStats {
   paper: ModeStats & { balanceSol: number };
+  /** Posisi mode real lama, dari sebelum buy real menempel di posisi paper. */
   real: ModeStats;
+  realLeg: RealLegStats;
 }
 
 export interface IPositionsRepository {
@@ -216,4 +246,5 @@ export interface IPositionsRepository {
   buyReason(p: Pick<Position, 'accountId' | 'mint' | 'openedAt'>): Promise<BuyReasonDto | null>;
   /** Statistik semua mode satu akun sekaligus (4 query total, bukan 4 per mode). */
   allModeStats(accountId: number): Promise<Record<TradeMode, ModeStats>>;
+  realLegStats(accountId: number): Promise<RealLegStats>;
 }

@@ -21,6 +21,13 @@ enum PositionStatus {
   failed
 }
 
+/// Status buy real yang menempel di posisi paper.
+enum RealLegStatus {
+  open
+  closed
+  failed
+}
+
 enum ExitReason {
   take_profit
   stop_loss
@@ -92,6 +99,14 @@ model Position {
   openedAt      DateTime       @default(now()) @map("opened_at")
   closedAt      DateTime?      @map("closed_at")
   priceUpdatedAt DateTime?     @map("price_updated_at")
+  /// Buy real yang ikut posisi paper ini (akun mode real, token cocok syarat buy real). null = tidak ada buy real.
+  realStatus        RealLegStatus? @map("real_status")
+  realAmountSol     Float?         @map("real_amount_sol")
+  realBuySignature  String?        @map("real_buy_signature")
+  realSellSignature String?        @map("real_sell_signature")
+  /// PnL real diperkirakan dari PnL % posisi paper saat ditutup.
+  realPnlSol        Float?         @map("real_pnl_sol")
+  realError         String?        @map("real_error")
 
   @@unique([accountId, mode, mint])
   @@index([status])

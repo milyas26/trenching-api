@@ -34,8 +34,24 @@ export const ogRuleSchema = z.object({
   takeProfitPct: z.coerce.number().positive().nullable().default(null),
 });
 
+/**
+ * Saat mode real, setiap buy tetap paper; token yang cocok semua syarat ini juga dibeli di wallet asli sebanyak amountSol.
+ * Dicek tepat sebelum buy (bukan dikirim ke GMGN). null = tanpa batas di sisi itu.
+ */
+export const realBuyRuleSchema = z.object({
+  /** SOL per buy real, terpisah dari ukuran buy paper. */
+  amountSol: z.coerce.number().positive().default(0.05),
+  /** Rasio bundler GMGN dalam persen. */
+  minBundlerPct: z.coerce.number().min(0).max(100).nullable().default(null),
+  maxBundlerPct: z.coerce.number().min(0).max(100).nullable().default(null),
+  /** Umur token saat buy, menit. */
+  minAgeMinutes: nullableNumber.default(null),
+  maxAgeMinutes: nullableNumber.default(null),
+});
+
 export const botSettingsSchema = z.object({
   botEnabled: z.boolean().default(false),
+  /** Semua buy dicatat paper. real = token yang cocok realBuy juga dibeli di wallet asli. */
   mode: z.enum(['paper', 'real']).default('paper'),
 
   /** sol = buyAmountSol tetap; pct = buyAmountPct % dari saldo tersedia (paper: saldo simulasi, real: saldo wallet setelah fee). */
@@ -81,6 +97,7 @@ export const botSettingsSchema = z.object({
   filter: hotSearchFilterSchema.default(hotSearchFilterSchema.parse({})),
   combos: combosSchema.default(combosSchema.parse({})),
   ogRule: ogRuleSchema.default(ogRuleSchema.parse({})),
+  realBuy: realBuyRuleSchema.default(realBuyRuleSchema.parse({})),
 });
 
 /**
@@ -95,10 +112,11 @@ function withoutDefaults<S extends z.ZodRawShape>(schema: z.ZodObject<S>) {
 }
 
 /** Payload PUT /settings: semua field opsional, botEnabled diatur lewat /bot/start|stop. */
-export const settingsPatchSchema = withoutDefaults(botSettingsSchema.omit({ botEnabled: true, filter: true, combos: true, ogRule: true }))
+export const settingsPatchSchema = withoutDefaults(botSettingsSchema.omit({ botEnabled: true, filter: true, combos: true, ogRule: true, realBuy: true }))
   .extend({
     filter: withoutDefaults(hotSearchFilterSchema).optional(),
     combos: withoutDefaults(combosSchema).optional(),
     ogRule: withoutDefaults(ogRuleSchema).optional(),
+    realBuy: withoutDefaults(realBuyRuleSchema).optional(),
   })
   .strict();
