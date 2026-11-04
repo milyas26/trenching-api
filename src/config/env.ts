@@ -12,7 +12,14 @@ function parseOrigins(value: string | undefined): string[] | true {
   return list.length > 0 ? list : true;
 }
 
-const solanaRpcUrl = process.env.SOLANA_RPC_URL ?? 'https://api.mainnet-beta.solana.com';
+const DEFAULT_SOLANA_RPC = 'https://api.mainnet-beta.solana.com';
+/** Boleh lebih dari satu endpoint dipisah koma; dicoba berurutan kalau yang sebelumnya mati/rate limit. */
+const solanaRpcUrls = (process.env.SOLANA_RPC_URL ?? DEFAULT_SOLANA_RPC)
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
+if (solanaRpcUrls.length === 0) solanaRpcUrls.push(DEFAULT_SOLANA_RPC);
+const solanaRpcUrl = solanaRpcUrls[0] ?? DEFAULT_SOLANA_RPC;
 
 export const env = {
   host: process.env.HOST ?? '0.0.0.0',
@@ -26,6 +33,7 @@ export const env = {
   pumpportalApiKey: process.env.PUMPPORTAL_API_KEY ?? '',
   walletPublicKey: process.env.WALLET_PUBLIC_KEY ?? '',
   solanaRpcUrl,
+  solanaRpcUrls,
   /** Default: URL RPC dengan skema http(s) diganti ws(s), sama seperti konvensi provider RPC umumnya. */
   solanaWsUrl: process.env.SOLANA_WS_URL ?? solanaRpcUrl.replace(/^http/, 'ws'),
   deepseekApiKey: process.env.DEEPSEEK_API_KEY ?? '',

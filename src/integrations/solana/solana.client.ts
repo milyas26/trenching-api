@@ -73,15 +73,34 @@ export class SolanaClient {
   }
 
   private async rpc<T>(method: string, params: unknown[]): Promise<T> {
-    const res = await fetch(env.solanaRpcUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
-      signal: AbortSignal.timeout(10_000),
-    });
-    if (!res.ok) throw new Error(`Solana RPC HTTP ${res.status}`);
-    const data = (await res.json()) as RpcResponse<T>;
-    if (data.error || !data.result) throw new Error(`Solana RPC: ${data.error?.message ?? 'response kosong'}`);
-    return data.result;
+    const body = JSON.stringify({ jsonrpc: '2.0', id: 1, method, params });
+    let lastErr: unknown = null;
+    // Endpoint publik sering hang/rate limit; coba endpoint berikutnya sebelum menyerah.
+    for (const url of env.solanaRpcUrls) {
+      const host = (() => {
+        try {
+          return new URL(url).host;
+        } catch {
+          return url;
+        }
+      })();
+      try {
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body,
+          signal: AbortSignal.timeout(10_000),
+        });
+        if (!res.ok) throw new Error(`Solana RPC HTTP ${res.status} (${host})`);
+        const data = (await res.json()) as RpcResponse<T>;
+        if (data.error || !data.result) {
+          throw new Error(`Solana RPC: ${data.error?.message ?? 'response kosong'} (${host})`);
+        }
+        return data.result;
+      } catch (e) {
+        lastErr = e instanceof Error ? new Error(`${e.message} [${host}]`) : e;
+      }
+    }
+    throw lastErr instanceof Error ? lastErr : new Error('Semua endpoint Solana RPC gagal');
   }
 }
