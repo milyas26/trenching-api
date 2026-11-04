@@ -38,7 +38,8 @@ export class BotService {
     const settings = await this.settings.get(accountId);
     const creds = await this.accounts.credentials(accountId);
     const s = this.state.scan(accountId);
-    const balance = settings.mode === 'real' ? await this.walletBalance(creds.wallet) : null;
+    // Saldo real ditampilkan di samping saldo paper di semua mode, selama akun punya wallet.
+    const balance = creds.wallet || settings.mode === 'real' ? await this.walletBalance(creds.wallet) : null;
     return {
       accountId,
       botEnabled: settings.botEnabled,
