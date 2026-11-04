@@ -7,6 +7,7 @@ import time
 
 try:
     from curl_cffi import requests as creq
+    from curl_cffi.requests.exceptions import RequestException
 except ImportError:
     sys.exit("curl_cffi belum terpasang. Jalankan: pip install curl-cffi")
 
@@ -84,13 +85,27 @@ def headers(args):
 
 
 def fetch_payload(args):
-    r = creq.post(
-        build_url(args),
-        data=json.dumps(build_body(args)),
-        headers=headers(args),
-        impersonate=args.impersonate,
-        timeout=args.timeout,
-    )
+    # DNS/network bisa hiccup sesaat di host ini — retry dulu sebelum nyerah,
+    # supaya satu kegagalan resolve tidak menggagalkan seluruh scan.
+    last_err = None
+    r = None
+    for attempt in range(1, 4):
+        try:
+            r = creq.post(
+                build_url(args),
+                data=json.dumps(build_body(args)),
+                headers=headers(args),
+                impersonate=args.impersonate,
+                timeout=args.timeout,
+            )
+            break
+        except RequestException as e:
+            last_err = e
+            if attempt == 3:
+                sys.exit(f"gagal konek ke gmgn.ai setelah 3 percobaan: {e}")
+            time.sleep(attempt)
+    if r is None:
+        sys.exit(f"gagal konek ke gmgn.ai: {last_err}")
     if r.status_code == 403:
         sys.exit(
             "403 dari Cloudflare. Pakai --impersonate chrome (default), "
