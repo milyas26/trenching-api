@@ -46,7 +46,7 @@ export class BotService {
       mode: settings.mode,
       source: settings.source,
       wallet: creds.wallet,
-      pumpportalReady: creds.apiKey.length > 0,
+      pumpapiReady: creds.apiKey.length > 0,
       walletBalanceSol: balance?.sol ?? null,
       walletBalanceError: balance?.error ?? null,
       scanning: s.scanning,

@@ -22,7 +22,7 @@ export interface AccountDto {
   /** true = akun punya API key dan wallet sendiri; false = pakai api/.env. */
   ownCredentials: boolean;
   apiKeyHint: string | null;
-  pumpportalReady: boolean;
+  pumpapiReady: boolean;
 }
 
 export interface CreateAccountInput {
@@ -41,7 +41,7 @@ export interface IAccountsRepository {
   list(): Promise<Account[]>;
   find(id: number): Promise<Account | null>;
   create(name: string, settings: unknown): Promise<Account>;
-  update(id: number, data: { name?: string; pumpportalApiKey?: string | null; walletPublicKey?: string | null }): Promise<Account>;
+  update(id: number, data: { name?: string; pumpapiApiKey?: string | null; walletPublicKey?: string | null }): Promise<Account>;
   saveSettings(id: number, settings: unknown): Promise<void>;
   delete(id: number): Promise<void>;
 }

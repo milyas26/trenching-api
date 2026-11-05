@@ -51,8 +51,8 @@ model Account {
   name             String
   /// BotSettings (lihat settings.schema.ts) sebagai JSON.
   settings         Json
-  /// PumpPortal Lightning API key untuk mode real; null = pakai PUMPPORTAL_API_KEY dari .env.
-  pumpportalApiKey String?         @map("pumpportal_api_key")
+  /// PumpAPI Lightning apiKey untuk mode real; null = pakai PUMPAPI_API_KEY dari .env.
+  pumpapiApiKey    String?         @map("pumpapi_api_key")
   /// null = pakai WALLET_PUBLIC_KEY dari .env.
   walletPublicKey  String?         @map("wallet_public_key")
   createdAt        DateTime        @default(now()) @map("created_at")

@@ -1,4 +1,4 @@
-import type { TradeOptions } from '../../integrations/pumpportal/pumpportal.types.ts';
+import type { TradeOptions } from '../../integrations/pumpapi/pumpapi.types.ts';
 import type { TradeMode } from '../positions/positions.interfaces.ts';
 import type { WalletCredentials } from '../accounts/accounts.interfaces.ts';
 import type { TokenInfo } from '../../integrations/gmgn/gmgn.types.ts';

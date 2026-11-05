@@ -4,6 +4,7 @@ export interface DexPair {
   dexId?: string;
   pairAddress?: string;
   baseToken?: { address: string };
+  quoteToken?: { address: string };
   priceUsd?: string;
   liquidity?: { usd?: number };
   marketCap?: number;

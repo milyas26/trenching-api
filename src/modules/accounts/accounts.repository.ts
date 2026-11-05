@@ -19,7 +19,7 @@ export class AccountsRepository implements IAccountsRepository {
     return this.db.account.create({ data: { name, settings: json(settings) } });
   }
 
-  update(id: number, data: { name?: string; pumpportalApiKey?: string | null; walletPublicKey?: string | null }) {
+  update(id: number, data: { name?: string; pumpapiApiKey?: string | null; walletPublicKey?: string | null }) {
     return this.db.account.update({ where: { id }, data });
   }
 

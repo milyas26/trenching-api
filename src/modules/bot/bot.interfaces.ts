@@ -28,7 +28,7 @@ export interface BotStatus {
   mode: TradeMode;
   source: TokenSource;
   wallet: string;
-  pumpportalReady: boolean;
+  pumpapiReady: boolean;
   /** Hanya diisi saat mode real. */
   walletBalanceSol: number | null;
   walletBalanceError: string | null;

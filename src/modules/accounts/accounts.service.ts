@@ -7,11 +7,11 @@ import type {
   Account, AccountDto, CreateAccountInput, IAccountsRepository, UpdateAccountInput, WalletCredentials,
 } from './accounts.interfaces.ts';
 
-/** Akun tanpa kredensial sendiri memakai PUMPPORTAL_API_KEY dan WALLET_PUBLIC_KEY dari api/.env. */
-function credentialsOf(a: Pick<Account, 'pumpportalApiKey' | 'walletPublicKey'>): WalletCredentials {
-  return a.pumpportalApiKey && a.walletPublicKey
-    ? { apiKey: a.pumpportalApiKey, wallet: a.walletPublicKey }
-    : { apiKey: env.pumpportalApiKey, wallet: env.walletPublicKey };
+/** Akun tanpa kredensial sendiri memakai PUMPAPI_API_KEY dan WALLET_PUBLIC_KEY dari api/.env. */
+function credentialsOf(a: Pick<Account, 'pumpapiApiKey' | 'walletPublicKey'>): WalletCredentials {
+  return a.pumpapiApiKey && a.walletPublicKey
+    ? { apiKey: a.pumpapiApiKey, wallet: a.walletPublicKey }
+    : { apiKey: env.pumpapiApiKey, wallet: env.walletPublicKey };
 }
 
 export class AccountsService {
@@ -50,20 +50,20 @@ export class AccountsService {
 
   async update(id: number, { name, credentials }: UpdateAccountInput): Promise<AccountDto> {
     await this.find(id);
-    const data: { name?: string; pumpportalApiKey?: string | null; walletPublicKey?: string | null } = {};
+    const data: { name?: string; pumpapiApiKey?: string | null; walletPublicKey?: string | null } = {};
     if (name !== undefined) {
       if (!name.trim()) throw badRequest('Nama akun wajib diisi');
       data.name = name.trim();
     }
     if (credentials !== undefined) {
-      data.pumpportalApiKey = credentials?.apiKey.trim() || null;
+      data.pumpapiApiKey = credentials?.apiKey.trim() || null;
       data.walletPublicKey = credentials?.wallet.trim() || null;
-      if (Boolean(data.pumpportalApiKey) !== Boolean(data.walletPublicKey)) {
+      if (Boolean(data.pumpapiApiKey) !== Boolean(data.walletPublicKey)) {
         throw badRequest('API key dan wallet diisi berpasangan, atau kosongkan keduanya untuk memakai api/.env');
       }
       const settings = await this.settings.get(id);
       if (settings.mode === 'real') {
-        await this.assertWalletFree(id, credentialsOf({ pumpportalApiKey: data.pumpportalApiKey, walletPublicKey: data.walletPublicKey }).wallet);
+        await this.assertWalletFree(id, credentialsOf({ pumpapiApiKey: data.pumpapiApiKey, walletPublicKey: data.walletPublicKey }).wallet);
       }
     }
     return this.toDto(await this.repo.update(id, data));
@@ -103,7 +103,7 @@ export class AccountsService {
   private async toDto(a: Account): Promise<AccountDto> {
     const settings = await this.settings.get(a.id);
     const creds = credentialsOf(a);
-    const own = Boolean(a.pumpportalApiKey && a.walletPublicKey);
+    const own = Boolean(a.pumpapiApiKey && a.walletPublicKey);
     return {
       id: a.id,
       name: a.name,
@@ -112,8 +112,8 @@ export class AccountsService {
       source: settings.source,
       wallet: creds.wallet,
       ownCredentials: own,
-      apiKeyHint: own ? a.pumpportalApiKey!.slice(-4) : null,
-      pumpportalReady: creds.apiKey.length > 0,
+      apiKeyHint: own ? a.pumpapiApiKey!.slice(-4) : null,
+      pumpapiReady: creds.apiKey.length > 0,
     };
   }
 }

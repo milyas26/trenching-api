@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { PUMP_POOLS } from '../../integrations/pumpportal/pumpportal.types.ts';
+import { QUOTE_ROUTES } from '../../integrations/pumpapi/pumpapi.types.ts';
 import { TOKEN_SOURCES } from '../../integrations/gmgn/gmgn.types.ts';
 import { AI_COMBO_IDS, NON_AI_COMBO_IDS } from './combos.ts';
 
@@ -75,7 +75,8 @@ export const botSettingsSchema = z.object({
 
   slippagePct: z.coerce.number().min(0).max(100).default(15),
   priorityFeeSol: z.coerce.number().min(0).default(0.0005),
-  pool: z.enum(PUMP_POOLS as [string, ...string[]]).default('auto'),
+  /** auto = pool terbesar, termasuk pasangan non-SOL (mis. WBTC); sol = hanya pool berpasangan SOL. */
+  quoteRoute: z.enum(QUOTE_ROUTES as [string, ...string[]]).default('auto'),
 
   /** Token yang cocok kombo dicek AI agent (DeepSeek) sebelum buy; false = langsung buy. Juga memilih daftar kombo yang dipakai. */
   aiAgentEnabled: z.boolean().default(true),

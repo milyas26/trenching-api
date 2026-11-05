@@ -1,7 +1,7 @@
 import { prisma } from './lib/prisma.ts';
 import { GmgnClient } from './integrations/gmgn/gmgn.client.ts';
 import { DexscreenerClient } from './integrations/dexscreener/dexscreener.client.ts';
-import { PumpportalClient } from './integrations/pumpportal/pumpportal.client.ts';
+import { PumpapiClient } from './integrations/pumpapi/pumpapi.client.ts';
 import { SolanaClient } from './integrations/solana/solana.client.ts';
 import { SolanaWsClient } from './integrations/solana/solana-ws.client.ts';
 import { OnchainPriceClient } from './integrations/onchain/onchain-price.client.ts';
@@ -39,7 +39,7 @@ import { BotController } from './modules/bot/bot.controller.ts';
 export function createContainer() {
   const gmgn = new GmgnClient();
   const dexscreener = new DexscreenerClient();
-  const pumpportal = new PumpportalClient();
+  const pumpapi = new PumpapiClient();
   const solana = new SolanaClient();
   // Satu instance supaya jeda anti-429 GeckoTerminal berlaku untuk harga dan chart agent sekaligus.
   const gecko = new GeckoterminalClient();
@@ -57,7 +57,7 @@ export function createContainer() {
   const snapshots = new SnapshotsService(new SnapshotsRepository(prisma));
   const trading = new TradingService(positionsRepo, positions, prices, settings, accounts, logs, [
     new PaperExecutor(),
-    new RealExecutor(pumpportal, solana),
+    new RealExecutor(pumpapi, solana, dexscreener),
   ]);
 
   const agent = new AgentService(new DeepseekClient(), dexscreener, gecko, prices);
