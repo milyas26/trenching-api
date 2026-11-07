@@ -45,6 +45,11 @@ function historyConditions({ accountId, mode, ranges, flags, combo }: Omit<Posit
     const value = flags[key];
     if (value !== undefined) conditions.push(Prisma.sql`token_info->${key} = to_jsonb(${value}::boolean)`);
   }
+  if (flags.realLeg !== undefined) {
+    // real_status NULL untuk posisi tanpa buy real; COALESCE supaya NOT tidak ikut jadi NULL.
+    const real = Prisma.sql`(mode::text = 'real' OR COALESCE(real_status::text IN ('open', 'closed'), false))`;
+    conditions.push(flags.realLeg ? real : Prisma.sql`NOT ${real}`);
+  }
   if (combo) {
     conditions.push(Prisma.sql`jsonb_typeof(token_info->'combos') = 'array' AND jsonb_exists(token_info->'combos', ${combo})`);
   }

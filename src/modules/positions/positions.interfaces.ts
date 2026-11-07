@@ -34,7 +34,12 @@ export type HistoryRanges = Partial<Record<HistoryRangeKey, { min?: number; max?
 /** Field boolean Token Info yang bisa disaring: true = harus ya, false = harus tidak. */
 export const HISTORY_FLAG_KEYS = ['devSold', 'dexPaid', 'communityTakeover', 'isOg'] as const;
 export type HistoryFlagKey = (typeof HISTORY_FLAG_KEYS)[number];
-export type HistoryFlags = Partial<Record<HistoryFlagKey, boolean>>;
+/**
+ * Filter boolean di luar Token Info. realLeg: true = hanya posisi yang juga dibeli di wallet asli
+ * (buy real berhasil, atau posisi mode real lama); false = hanya yang tidak.
+ */
+export const HISTORY_POSITION_FLAG_KEYS = ['realLeg'] as const;
+export type HistoryFlags = Partial<Record<HistoryFlagKey | (typeof HISTORY_POSITION_FLAG_KEYS)[number], boolean>>;
 
 export interface PositionHistoryQuery {
   accountId: number;

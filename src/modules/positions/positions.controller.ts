@@ -1,7 +1,7 @@
 import type { FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { accountIdOf } from '../../common/account.ts';
-import { HISTORY_FLAG_KEYS, HISTORY_RANGE_KEYS, type HistoryRanges } from './positions.interfaces.ts';
+import { HISTORY_FLAG_KEYS, HISTORY_POSITION_FLAG_KEYS, HISTORY_RANGE_KEYS, type HistoryFlags, type HistoryRanges } from './positions.interfaces.ts';
 import type { PositionsService } from './positions.service.ts';
 import type { TradingService } from '../trading/trading.service.ts';
 import type { MonitorService } from '../bot/monitor.service.ts';
@@ -20,10 +20,10 @@ const historyQuery = z.object({
 const rangeQuery = z.object(Object.fromEntries(
   HISTORY_RANGE_KEYS.flatMap((k) => [`${k}Min`, `${k}Max`]).map((k) => [k, z.coerce.number().finite().optional()]),
 ));
-/** Filter boolean dikirim sebagai <key>=true / <key>=false, mis. dexPaid=true. */
+/** Filter boolean dikirim sebagai <key>=true / <key>=false, mis. dexPaid=true atau realLeg=true. */
 const flagQuery = z.object(Object.fromEntries(
-  HISTORY_FLAG_KEYS.map((k) => [k, z.enum(['true', 'false']).transform((v) => v === 'true').optional()]),
-)) as z.ZodType<Partial<Record<(typeof HISTORY_FLAG_KEYS)[number], boolean>>>;
+  [...HISTORY_FLAG_KEYS, ...HISTORY_POSITION_FLAG_KEYS].map((k) => [k, z.enum(['true', 'false']).transform((v) => v === 'true').optional()]),
+)) as z.ZodType<HistoryFlags>;
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Format tanggal YYYY-MM-DD');
 const dailyQuery = z.object({
   mode: z.enum(['paper', 'real']),
