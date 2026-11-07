@@ -28,6 +28,27 @@ export interface AccountInfo {
   owner: string;
 }
 
+export interface ParsedTokenBalance {
+  accountIndex: number;
+  mint: string;
+  owner?: string;
+  uiTokenAmount: { amount: string; decimals: number };
+}
+
+/** Bagian getTransaction (jsonParsed) yang dipakai untuk menghitung hasil swap. */
+export interface ParsedTransaction {
+  blockTime: number | null;
+  transaction: { message: { accountKeys: { pubkey: string }[] } };
+  meta: {
+    err: unknown;
+    fee: number;
+    preBalances: number[];
+    postBalances: number[];
+    preTokenBalances?: ParsedTokenBalance[];
+    postTokenBalances?: ParsedTokenBalance[];
+  } | null;
+}
+
 /** JSON-RPC Solana langsung lewat fetch, tanpa @solana/web3.js. */
 export class SolanaClient {
   async getBalanceSol(address: string): Promise<number> {
@@ -54,6 +75,14 @@ export class SolanaClient {
     return value[0] ?? null;
   }
 
+  /** null = belum bisa dibaca di commitment confirmed (RPC kadang tertinggal beberapa detik). */
+  async getTransaction(signature: string): Promise<ParsedTransaction | null> {
+    return this.rpcNullable<ParsedTransaction>('getTransaction', [
+      signature,
+      { encoding: 'jsonParsed', commitment: 'confirmed', maxSupportedTransactionVersion: 1 },
+    ]);
+  }
+
   /** Data mentah akun. Akun yang tidak ada bernilai null. */
   async getMultipleAccounts(addresses: string[]): Promise<Map<string, AccountInfo | null>> {
     const unique = [...new Set(addresses)];
@@ -73,9 +102,16 @@ export class SolanaClient {
   }
 
   private async rpc<T>(method: string, params: unknown[]): Promise<T> {
+    const result = await this.rpcNullable<T>(method, params);
+    if (result === null) throw new Error(`Solana RPC: response kosong (${method})`);
+    return result;
+  }
+
+  private async rpcNullable<T>(method: string, params: unknown[]): Promise<T | null> {
     const body = JSON.stringify({ jsonrpc: '2.0', id: 1, method, params });
     let lastErr: unknown = null;
-    // Endpoint publik sering hang/rate limit; coba endpoint berikutnya sebelum menyerah.
+    let sawEmpty = false;
+    // Endpoint publik sering hang/rate limit atau tertinggal; coba endpoint berikutnya sebelum menyerah.
     for (const url of env.solanaRpcUrls) {
       const host = (() => {
         try {
@@ -93,14 +129,14 @@ export class SolanaClient {
         });
         if (!res.ok) throw new Error(`Solana RPC HTTP ${res.status} (${host})`);
         const data = (await res.json()) as RpcResponse<T>;
-        if (data.error || !data.result) {
-          throw new Error(`Solana RPC: ${data.error?.message ?? 'response kosong'} (${host})`);
-        }
-        return data.result;
+        if (data.error) throw new Error(`Solana RPC: ${data.error.message} (${host})`);
+        if (data.result != null) return data.result;
+        sawEmpty = true;
       } catch (e) {
         lastErr = e instanceof Error ? new Error(`${e.message} [${host}]`) : e;
       }
     }
+    if (sawEmpty) return null;
     throw lastErr instanceof Error ? lastErr : new Error('Semua endpoint Solana RPC gagal');
   }
 }

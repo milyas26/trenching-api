@@ -91,6 +91,11 @@ export class OnchainPriceClient implements PriceSource {
     return result;
   }
 
+  async getSolUsd(): Promise<number | null> {
+    const accounts = await this.solana.getMultipleAccounts([PYTH_SOL_USD]);
+    return this.solUsd(accounts.get(PYTH_SOL_USD));
+  }
+
   async getPrice(mint: string): Promise<number | null> {
     return (await this.getQuotes([mint])).get(mint)?.priceUsd ?? null;
   }

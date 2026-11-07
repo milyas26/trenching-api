@@ -2,7 +2,8 @@ import type { PumpapiClient, SendOptions } from '../../integrations/pumpapi/pump
 import { WSOL_MINT } from '../../integrations/pumpapi/pumpapi.types.ts';
 import type { DexscreenerClient } from '../../integrations/dexscreener/dexscreener.client.ts';
 import type { SolanaClient } from '../../integrations/solana/solana.client.ts';
-import { NoTokensError, type TradeContext, type TradeExecutor } from './trading.interfaces.ts';
+import { NoTokensError, type TradeContext, type TradeExecutor, type TradeTx } from './trading.interfaces.ts';
+import { readSwapFill } from './fills.ts';
 
 /** Simulasi: tidak ada transaksi on-chain, harga diambil dari pasar oleh TradingService. */
 export class PaperExecutor implements TradeExecutor {
@@ -10,6 +11,7 @@ export class PaperExecutor implements TradeExecutor {
   async maxBuySol() { return null; }
   async buy() { return null; }
   async sellAll() { return null; }
+  async readFill() { return null; }
 }
 
 const CONFIRM_TIMEOUT_MS = 60_000;
@@ -39,7 +41,7 @@ export class RealExecutor implements TradeExecutor {
     return Math.max(0, (balance - ctx.priorityFeeSol * 2 - FEE_BUFFER_SOL) / (1 + PUMPAPI_FEE));
   }
 
-  async buy(mint: string, amountSol: number, ctx: TradeContext) {
+  async buy(mint: string, amountSol: number, ctx: TradeContext): Promise<TradeTx> {
     const quoteMint = ctx.quoteRoute === 'sol' ? WSOL_MINT : await this.topQuoteMint(mint);
     const { signature } = quoteMint === WSOL_MINT
       ? await this.pumpapi.buyWithSol(sendOpts(ctx), mint, amountSol)
@@ -48,18 +50,27 @@ export class RealExecutor implements TradeExecutor {
     if (!landed && (await this.tokenBalance(ctx, mint)) === 0n) {
       throw new Error(`tx buy ${signature} tidak terkonfirmasi dan token tidak ada di wallet`);
     }
-    return signature;
+    return { signature, fill: await this.readFill(signature, mint, ctx) };
   }
 
-  async sellAll(mint: string, ctx: TradeContext) {
+  readFill(signature: string, mint: string, ctx: TradeContext) {
+    return readSwapFill(this.solana, signature, wallet(ctx), mint);
+  }
+
+  async sellAll(mint: string, ctx: TradeContext): Promise<TradeTx> {
     if ((await this.tokenBalance(ctx, mint)) === 0n) throw new NoTokensError();
     const { signature, quoteMint } = await this.pumpapi.sellAll(sendOpts(ctx), mint, ctx.quoteRoute === 'sol' ? WSOL_MINT : undefined);
     const landed = await this.confirm(signature, 'sell');
     if (!landed && (await this.tokenBalance(ctx, mint)) > 0n) {
       throw new Error(`tx sell ${signature} tidak terkonfirmasi, token masih di wallet`);
     }
-    if (quoteMint && quoteMint !== WSOL_MINT) await this.sellQuoteToSol(ctx, quoteMint);
-    return signature;
+    const fill = await this.readFill(signature, mint, ctx);
+    if (!quoteMint || quoteMint === WSOL_MINT) return { signature, fill };
+
+    // Hasil sell masih berupa token quote; SOL-nya baru masuk di tx tukar quote -> SOL.
+    const quoteSwap = await this.sellQuoteToSol(ctx, quoteMint);
+    const quoteFill = quoteSwap ? await this.readFill(quoteSwap, quoteMint, ctx) : null;
+    return { signature, fill: fill && quoteFill ? { sol: fill.sol + quoteFill.sol, tokens: fill.tokens } : null };
   }
 
   /**
@@ -75,12 +86,13 @@ export class RealExecutor implements TradeExecutor {
    * Hasil sell di pool non-SOL (mis. WBTC) ditukar balik ke SOL. Token utama sudah terjual,
    * jadi gagal di sini tidak menggagalkan sell; quote-nya tertinggal di wallet.
    */
-  private async sellQuoteToSol(ctx: TradeContext, quoteMint: string) {
+  private async sellQuoteToSol(ctx: TradeContext, quoteMint: string): Promise<string | null> {
     try {
       const { signature } = await this.pumpapi.sellAll(sendOpts(ctx), quoteMint, WSOL_MINT);
-      await this.confirm(signature, 'sell');
+      return (await this.confirm(signature, 'sell')) ? signature : null;
     } catch (err) {
       console.error(`[real] gagal menukar quote ${quoteMint} ke SOL, tersisa di wallet:`, err);
+      return null;
     }
   }
 
