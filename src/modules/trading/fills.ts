@@ -10,6 +10,8 @@ export interface SwapFill {
   sol: number;
   /** Jumlah token (ui), positif saat buy, negatif saat sell. */
   tokens: number;
+  /** Waktu blok tx (epoch detik). */
+  blockTime: number | null;
 }
 
 /**
@@ -37,7 +39,7 @@ export function swapFill(tx: ParsedTransaction, wallet: string, mint: string): S
     .reduce((sum, b) => sum + Number(b.uiTokenAmount.amount) / 10 ** b.uiTokenAmount.decimals, 0);
   const tokens = tokenSum(meta.postTokenBalances ?? []) - tokenSum(meta.preTokenBalances ?? []);
 
-  return { sol: lamports / LAMPORTS_PER_SOL, tokens };
+  return { sol: lamports / LAMPORTS_PER_SOL, tokens, blockTime: tx.blockTime };
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));

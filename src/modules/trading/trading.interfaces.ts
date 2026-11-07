@@ -12,6 +12,8 @@ export type TradeContext = TradeOptions & WalletCredentials;
 export interface TradeTx {
   signature: string;
   fill: SwapFill | null;
+  /** Epoch ms saat PumpAPI mengembalikan signature (tx sudah dikirim). */
+  sentAt?: number;
 }
 
 /** Eksekusi order. null untuk paper trading. */

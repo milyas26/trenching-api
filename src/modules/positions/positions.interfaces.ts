@@ -161,6 +161,9 @@ export interface RealLegData {
 
 export interface ClosedPositionData {
   exitPrice: number;
+  /** High/low terakhir dari monitor; tidak diisi = tetap nilai di DB. */
+  highPrice?: number;
+  lowPrice?: number;
   exitReason: ExitReason;
   pnlPct: number;
   pnlSol: number;

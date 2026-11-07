@@ -57,20 +57,33 @@ export class RealExecutor implements TradeExecutor {
     return readSwapFill(this.solana, signature, wallet(ctx), mint);
   }
 
+  /**
+   * Sell dikirim tanpa cek saldo dulu: satu panggilan RPC sebelum kirim bisa makan ratusan ms sampai beberapa detik,
+   * dan harga token bisa turun belasan persen dalam waktu itu. Saldo baru dicek kalau sell gagal.
+   */
   async sellAll(mint: string, ctx: TradeContext): Promise<TradeTx> {
-    if ((await this.tokenBalance(ctx, mint)) === 0n) throw new NoTokensError();
-    const { signature, quoteMint } = await this.pumpapi.sellAll(sendOpts(ctx), mint, ctx.quoteRoute === 'sol' ? WSOL_MINT : undefined);
-    const landed = await this.confirm(signature, 'sell');
+    const noTokensOr = async (e: unknown) => {
+      if ((await this.tokenBalance(ctx, mint).catch(() => null)) === 0n) throw new NoTokensError();
+      throw e;
+    };
+
+    const sent = await this.pumpapi.sellAll(sendOpts(ctx), mint, ctx.quoteRoute === 'sol' ? WSOL_MINT : undefined)
+      .catch(noTokensOr);
+    const sentAt = Date.now();
+    const { signature, quoteMint } = sent;
+    const landed = await this.confirm(signature, 'sell').catch(noTokensOr);
     if (!landed && (await this.tokenBalance(ctx, mint)) > 0n) {
       throw new Error(`tx sell ${signature} tidak terkonfirmasi, token masih di wallet`);
     }
     const fill = await this.readFill(signature, mint, ctx);
-    if (!quoteMint || quoteMint === WSOL_MINT) return { signature, fill };
+    // Tx sukses tapi tidak ada token yang berpindah: wallet memang tidak memegang token ini.
+    if (fill && fill.tokens === 0) throw new NoTokensError();
+    if (!quoteMint || quoteMint === WSOL_MINT) return { signature, fill, sentAt };
 
     // Hasil sell masih berupa token quote; SOL-nya baru masuk di tx tukar quote -> SOL.
     const quoteSwap = await this.sellQuoteToSol(ctx, quoteMint);
     const quoteFill = quoteSwap ? await this.readFill(quoteSwap, quoteMint, ctx) : null;
-    return { signature, fill: fill && quoteFill ? { sol: fill.sol + quoteFill.sol, tokens: fill.tokens } : null };
+    return { signature, sentAt, fill: fill && quoteFill ? { ...fill, sol: fill.sol + quoteFill.sol } : null };
   }
 
   /**

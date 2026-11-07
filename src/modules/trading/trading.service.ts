@@ -159,7 +159,11 @@ export class TradingService {
     }
   }
 
-  async close(id: number, reason: ExitReason, priceHint?: number): Promise<void> {
+  /** extremes: high/low terbaru dari monitor yang belum sempat ditulis ke DB. */
+  async close(
+    id: number, reason: ExitReason, priceHint?: number, extremes?: { highPrice: number; lowPrice: number },
+  ): Promise<void> {
+    const triggeredAt = Date.now();
     const pos = await this.repo.claimForClose(id);
     if (!pos) throw conflict('Posisi tidak sedang open');
     const label = `${pos.symbol ?? shortMint(pos.mint)} [${pos.mode}]`;
@@ -174,7 +178,7 @@ export class TradingService {
       // Posisi mode real lama dijual lewat executor real; posisi paper tidak punya transaksi.
       const sellSignature = (await this.executors[pos.mode].sellAll(pos.mint, ctx))?.signature ?? null;
       // Kalau sell real gagal (selain token tidak ada), error dilempar dan seluruh posisi dicoba lagi.
-      const real = pos.realStatus === 'open' ? await this.sellRealLeg(pos, ctx) : null;
+      const real = pos.realStatus === 'open' ? await this.sellRealLeg(pos, ctx, triggeredAt) : null;
       // Exit posisi yang ikut sell real = harga yang benar-benar didapat wallet, bukan harga yang memicu exit.
       const exitPrice = real?.exitPrice ?? price;
       const pct = pnlPct(pos.entryPrice, exitPrice);
@@ -183,7 +187,9 @@ export class TradingService {
         ? { ...real.leg, realPnlSol: (pos.realAmountSol ?? 0) * (pct / 100) }
         : real?.leg ?? {};
 
-      await this.repo.markClosed(id, { exitPrice, exitReason: reason, pnlPct: pct, pnlSol, sellSignature, ...realLeg });
+      await this.repo.markClosed(id, {
+        exitPrice, exitReason: reason, pnlPct: pct, pnlSol, sellSignature, ...extremes, ...realLeg,
+      });
       await log.sell(
         `SELL ${label} (${reason}) @ $${exitPrice}${exitPrice !== price ? ` (pemicu $${price})` : ''}`
           + ` | PnL ${pct.toFixed(2)}% (${pnlSol.toFixed(4)} SOL)` + (sellSignature ? ` sig ${sellSignature}` : ''),
@@ -206,7 +212,7 @@ export class TradingService {
    * PnL real = SOL masuk dari sell - SOL keluar saat buy, dibaca dari kedua tx.
    * realPnlSol null kalau salah satu tx tidak terbaca; pemanggil lalu memperkirakannya dari PnL %.
    */
-  private async sellRealLeg(pos: Position, ctx: TradeContext) {
+  private async sellRealLeg(pos: Position, ctx: TradeContext, triggeredAt: number) {
     const label = `${pos.symbol ?? shortMint(pos.mint)} [real]`;
     const log = this.logs.for(pos.accountId);
     try {
@@ -223,8 +229,14 @@ export class TradingService {
         return { leg: { realStatus: 'closed' as const, realSellSignature, realPnlSol: null }, exitPrice };
       }
       const realPnlSol = sellFill.sol + buyFill.sol;
+      // blockTime cuma presisi detik, jadi jarak trigger -> masuk blok dibulatkan.
+      const timing = [
+        sell?.sentAt ? `kirim +${sell.sentAt - triggeredAt} ms` : null,
+        sellFill.blockTime ? `masuk blok ~${Math.max(0, sellFill.blockTime - Math.floor(triggeredAt / 1000))} dtk` : null,
+      ].filter(Boolean).join(', ');
       await log.sell(
         `SELL ${label} | swap ${(-buyFill.sol).toFixed(4)} -> ${sellFill.sol.toFixed(4)} SOL | PnL ${realPnlSol.toFixed(4)} SOL`
+          + (timing ? ` | ${timing} setelah trigger` : '')
           + (realSellSignature ? ` sig ${realSellSignature}` : ''),
       );
       return { leg: { realStatus: 'closed' as const, realSellSignature, realPnlSol }, exitPrice };

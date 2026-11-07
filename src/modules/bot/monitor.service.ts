@@ -189,12 +189,16 @@ export class MonitorService {
       rules,
     );
 
+    // Exit langsung dijual tanpa menulis harga dulu; high/low ikut disimpan saat posisi ditutup.
+    if (reason && this.canExit(pos)) {
+      await this.exit(pos, reason, price, { highPrice, lowPrice });
+      return;
+    }
     const now = Date.now();
     if (reason || !throttled || now - (this.lastWrite.get(pos.id) ?? 0) >= STREAM_WRITE_MS) {
       this.lastWrite.set(pos.id, now);
       await this.positions.updatePrice(pos.id, price, highPrice, lowPrice, pnl);
     }
-    if (reason) await this.exit(pos, reason, price);
   }
 
   /**
@@ -212,14 +216,20 @@ export class MonitorService {
     await this.exit(pos, 'max_hold');
   }
 
-  private async exit(pos: Position, reason: ExitReason, price?: number) {
-    if (this.closing.has(pos.id)) return;
-    if (Date.now() < (this.sellRetry.get(pos.id)?.at ?? 0)) return;
+  /** false = sell sedang berjalan atau masih menunggu jeda retry setelah gagal. */
+  private canExit(pos: Position) {
+    return !this.closing.has(pos.id) && Date.now() >= (this.sellRetry.get(pos.id)?.at ?? 0);
+  }
+
+  private async exit(
+    pos: Position, reason: ExitReason, price?: number, extremes?: { highPrice: number; lowPrice: number },
+  ) {
+    if (!this.canExit(pos)) return;
 
     this.closing.add(pos.id);
     this.open.delete(pos.id);
     try {
-      await this.trading.close(pos.id, reason, price);
+      await this.trading.close(pos.id, reason, price, extremes);
       this.sellRetry.delete(pos.id);
       this.live.publishClosed(pos.id);
       if (![...this.open.values()].some((p) => p.mint === pos.mint)) this.stream.unwatch(pos.mint);
@@ -228,6 +238,10 @@ export class MonitorService {
       const failures = (this.sellRetry.get(pos.id)?.failures ?? 0) + 1;
       const delay = Math.min(SELL_RETRY_BASE_MS * 2 ** (failures - 1), SELL_RETRY_MAX_MS);
       this.sellRetry.set(pos.id, { failures, at: Date.now() + delay });
+      // Harga pemicu belum tertulis karena sell didahulukan; posisi sudah kembali open, jadi tulis sekarang.
+      if (price && extremes) {
+        await this.positions.updatePrice(pos.id, price, extremes.highPrice, extremes.lowPrice, pos.pnlPct ?? 0).catch(() => {});
+      }
     } finally {
       this.closing.delete(pos.id);
     }
